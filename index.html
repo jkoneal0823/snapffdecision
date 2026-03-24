@@ -898,13 +898,7 @@
     </div>
 
     <!-- Roster table -->
-    <div id="roster-content">
-      <div style="padding:40px;text-align:center;color:var(--muted)">
-        <div style="font-size:32px;margin-bottom:12px">🏈</div>
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1px">Loading NFL Rosters...</div>
-        <div style="font-size:13px;margin-top:6px">Fetching live rosters from ESPN</div>
-      </div>
-    </div>
+    <div id="roster-content"></div>
   </div>
 
   <!-- MOCK DRAFT PAGE -->
@@ -2930,18 +2924,21 @@ function renderRosterPage() {
   const status  = document.getElementById('roster-sync-status');
   if (!content) return;
 
-  // Deduplicate by name+team (ESPN sometimes returns players in multiple position groups)
-  const rawPool = sleeperLoaded ? sleeperPlayers : playerDB.filter(p => p.pos !== 'PICK');
+  // Always use NFL2026 database - guaranteed to be populated
+  const rawPool = (sleeperPlayers && sleeperPlayers.length > 0)
+    ? sleeperPlayers
+    : (typeof NFL2026 !== 'undefined' ? NFL2026 : playerDB.filter(p => p.pos !== 'PICK'));
+  
   const seen = new Set();
   const pool = rawPool.filter(p => {
-    const key = p.name + '|' + (p.team || 'FA');
+    const key = (p.name||'') + '|' + (p.team || 'FA');
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 
   if (!pool || pool.length === 0) {
-    content.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted)"><div style="font-size:32px;margin-bottom:12px">🏈</div><div style="font-family:Bebas Neue,sans-serif;font-size:18px">Loading live roster data...</div></div>';
+    content.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted)">No player data.</div>';
     return;
   }
 
