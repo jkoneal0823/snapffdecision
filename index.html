@@ -1935,7 +1935,13 @@ async function loadESPNRosters() {
     } catch(e) {}
 
     console.log("[SnapFF] Live rosters loaded:", players.length, "players");
+    window.espnDataLoaded = true;
     syncESPNToTradeDB();
+    // Re-render roster page if it is currently visible
+    if (document.getElementById("page-rosters") && 
+        document.getElementById("page-rosters").classList.contains("active")) {
+      renderRosterPage();
+    }
 
   } catch(err) {
     console.warn("[SnapFF] Proxy fetch failed, using local DB:", err.message);
@@ -2438,7 +2444,15 @@ function renderRosterPage() {
   const status  = document.getElementById('roster-sync-status');
   if (!content) return;
 
-  const pool = sleeperLoaded ? sleeperPlayers : playerDB.filter(p => p.pos !== 'PICK');
+  // Deduplicate by name+team (ESPN sometimes returns players in multiple position groups)
+  const rawPool = sleeperLoaded ? sleeperPlayers : playerDB.filter(p => p.pos !== 'PICK');
+  const seen = new Set();
+  const pool = rawPool.filter(p => {
+    const key = p.name + '|' + (p.team || 'FA');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 
   if (!pool || pool.length === 0) {
     content.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted)"><div style="font-size:32px;margin-bottom:12px">🏈</div><div style="font-family:Bebas Neue,sans-serif;font-size:18px">Loading live roster data...</div></div>';
@@ -2446,7 +2460,8 @@ function renderRosterPage() {
   }
 
   if (status) {
-    const src = sleeperLoaded ? "● Live — ESPN API (Current Rosters)" : "○ Local DB — ESPN proxy not connected";
+    const isLive = sleeperLoaded && window.espnDataLoaded;
+    const src = isLive ? "● Live — ESPN API" : (sleeperLoaded ? "● Live — ESPN API" : "○ Loading rosters...");
     const col = sleeperLoaded ? "var(--accent)" : "var(--muted)";
     status.innerHTML = `<span style="color:${col}">${src} · ${pool.length} players</span>`;
   }
