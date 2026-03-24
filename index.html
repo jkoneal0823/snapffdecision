@@ -1832,8 +1832,13 @@ function sendChat(){
   chats.push({user:'You',init:'ME',msg:v,time:'Now',self:true});
   el.value='';renderChat();
 }
-// Clear old Sleeper cache so ESPN takes over
-try { localStorage.removeItem("snapff_sleeper_players"); localStorage.removeItem("snapff_sleeper_time"); } catch(e) {}
+// Clear ALL old cached roster data so live ESPN proxy is always used
+try {
+  localStorage.removeItem("snapff_sleeper_players");
+  localStorage.removeItem("snapff_sleeper_time");
+  localStorage.removeItem("snapff_espn_rosters");
+  localStorage.removeItem("snapff_espn_time");
+} catch(e) {}
 renderRedraft();renderDynasty();renderRookies();renderIDP();renderNews();renderTrade();renderChat();updateSettingsNote();
 
 // Load ESPN rosters silently in background — parallel fetches, always current
@@ -1892,64 +1897,32 @@ async function loadESPNRosters() {
       sleeperPlayers = JSON.parse(cached);
       sleeperLoaded  = true;
       syncESPNToTradeDB();
-      console.log("[SnapFF] ESPN rosters loaded from cache:", sleeperPlayers.length, "players");
+      console.log("[SnapFF] Rosters loaded from cache:", sleeperPlayers.length, "players");
       return;
     }
   } catch(e) {}
 
   try {
-    console.log("[SnapFF] Fetching live rosters from ESPN API (32 teams in parallel)...");
+    // Call our Netlify proxy function — no CORS issues, always current ESPN data
+    console.log("[SnapFF] Fetching live rosters via Netlify proxy...");
+    const res  = await fetch("/.netlify/functions/roster");
+    const data = await res.json();
 
-    // Fetch all 32 teams simultaneously
-    const fetches = ESPN_TEAMS.map(t =>
-      fetch("https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/" + t.id + "/roster")
-        .then(r => r.json())
-        .then(d => ({ abbr: t.abbr, data: d }))
-        .catch(() => ({ abbr: t.abbr, data: null }))
-    );
+    if (!data.players || !data.players.length) throw new Error("No players returned");
 
-    const results = await Promise.all(fetches);
-    const players = [];
-
-    results.forEach(({ abbr, data }) => {
-      if (!data || !data.athletes) return;
-
-      // ESPN returns athletes grouped by position category
-      data.athletes.forEach(group => {
-        if (!group.items) return;
-        group.items.forEach(athlete => {
-          const pos = athlete.position && athlete.position.abbreviation;
-          if (!OFF_POS.has(pos)) return;
-
-          const name   = athlete.fullName || ((athlete.firstName || "") + " " + (athlete.lastName || "")).trim();
-          const age    = athlete.age || null;
-          const status = athlete.injuries && athlete.injuries.length
-            ? athlete.injuries[0].type && athlete.injuries[0].type.description || "Questionable"
-            : "Active";
-
-          // Match to local DB for fantasy values
-          const local = playerDB.find(l =>
-            l.name.toLowerCase() === name.toLowerCase() ||
-            l.name.replace(/[^a-zA-Z]/g,"").toLowerCase() === name.replace(/[^a-zA-Z]/g,"").toLowerCase()
-          );
-
-          players.push({
-            name,
-            pos,
-            team:    abbr,
-            age,
-            status,
-            redraft: local ? local.redraft : 0,
-            dynasty: local ? local.dynasty : 0,
-            rec:     local ? local.rec     : 50,
-            espnId:  athlete.id
-          });
-        });
-      });
-    });
-
-    // Sort: local DB players (known value) by redraft desc, rest alphabetically
-    players.sort((a, b) => {
+    // Merge with local DB fantasy values
+    const players = data.players.map(p => {
+      const local = playerDB.find(l =>
+        l.name.toLowerCase() === p.name.toLowerCase() ||
+        l.name.replace(/[^a-zA-Z]/g,"").toLowerCase() === p.name.replace(/[^a-zA-Z]/g,"").toLowerCase()
+      );
+      return {
+        ...p,
+        redraft: local ? local.redraft : 0,
+        dynasty: local ? local.dynasty : 0,
+        rec:     local ? local.rec     : 50
+      };
+    }).sort((a, b) => {
       if (a.redraft > 0 && b.redraft > 0) return b.redraft - a.redraft;
       if (a.redraft > 0) return -1;
       if (b.redraft > 0) return  1;
@@ -1959,18 +1932,16 @@ async function loadESPNRosters() {
     sleeperPlayers = players;
     sleeperLoaded  = true;
 
-    // Cache to localStorage
     try {
       localStorage.setItem("snapff_espn_rosters", JSON.stringify(players));
       localStorage.setItem("snapff_espn_time", String(Date.now()));
     } catch(e) {}
 
-    console.log("[SnapFF] ESPN live rosters loaded:", players.length, "players");
+    console.log("[SnapFF] Live rosters loaded:", players.length, "players");
     syncESPNToTradeDB();
 
   } catch(err) {
-    console.warn("[SnapFF] ESPN API failed, falling back to local DB:", err.message);
-    espnLoadError = true;
+    console.warn("[SnapFF] Proxy fetch failed, using local DB:", err.message);
     sleeperPlayers = playerDB.filter(p => p.pos !== "PICK").sort((a,b) => b.redraft - a.redraft);
     sleeperLoaded  = true;
   }
@@ -2478,7 +2449,7 @@ function renderRosterPage() {
   }
 
   if (status) {
-    const src = sleeperLoaded ? "● Live — ESPN API" : "○ Local DB (ESPN unavailable)";
+    const src = sleeperLoaded ? "● Live — ESPN API (Current Rosters)" : "○ Local DB — ESPN proxy not connected";
     const col = sleeperLoaded ? "var(--accent)" : "var(--muted)";
     status.innerHTML = `<span style="color:${col}">${src} · ${pool.length} players</span>`;
   }
