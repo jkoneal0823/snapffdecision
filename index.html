@@ -1844,8 +1844,7 @@ try {
 renderRedraft();renderDynasty();renderRookies();renderIDP();renderNews();renderTrade();renderChat();updateSettingsNote();
 
 // Load ESPN rosters silently in background — parallel fetches, always current
-// Load comprehensive 2026 NFL player database instantly (no API needed)
-loadNFLDatabase();
+// NFL database loads after NFL2026 array is defined below
 
 // ========== SNAP DECISION ENGINE ==========
 let currentMode = 'start-sit';
@@ -2392,6 +2391,10 @@ const NFL2026 = [
   {name:"Ty Simpson",             pos:"QB", team:"DRAFT", age:22, college:"Alabama",         status:"2026 Draft Prospect", rank:13},
   {name:"Drew Allar",             pos:"QB", team:"DRAFT", age:23, college:"Penn State",      status:"2026 Draft Prospect", rank:14},
 ];
+
+// Initialize database immediately after array is defined
+loadNFLDatabase();
+
 
 function loadNFLDatabase() {
   // Merge NFL2026 data with existing playerDB fantasy values
