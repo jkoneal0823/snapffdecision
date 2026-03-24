@@ -1832,12 +1832,14 @@ function sendChat(){
   chats.push({user:'You',init:'ME',msg:v,time:'Now',self:true});
   el.value='';renderChat();
 }
-// Clear ALL old cached roster data so live ESPN proxy is always used
+// Always clear roster cache so live ESPN proxy data is used
 try {
   localStorage.removeItem("snapff_sleeper_players");
   localStorage.removeItem("snapff_sleeper_time");
   localStorage.removeItem("snapff_espn_rosters");
   localStorage.removeItem("snapff_espn_time");
+  localStorage.removeItem("snapff_roster_cache");
+  localStorage.removeItem("snapff_roster_time");
 } catch(e) {}
 renderRedraft();renderDynasty();renderRookies();renderIDP();renderNews();renderTrade();renderChat();updateSettingsNote();
 
@@ -1893,13 +1895,8 @@ async function loadESPNRosters() {
   try {
     const cached   = localStorage.getItem("snapff_espn_rosters");
     const cacheAge = localStorage.getItem("snapff_espn_time");
-    if (cached && cacheAge && (Date.now() - parseInt(cacheAge)) < 6 * 3600 * 1000) {
-      sleeperPlayers = JSON.parse(cached);
-      sleeperLoaded  = true;
-      syncESPNToTradeDB();
-      console.log("[SnapFF] Rosters loaded from cache:", sleeperPlayers.length, "players");
-      return;
-    }
+    // Cache disabled — always fetch fresh from ESPN proxy
+    // if (cached && cacheAge && (Date.now() - parseInt(cacheAge)) < 6 * 3600 * 1000) { return; }
   } catch(e) {}
 
   try {
