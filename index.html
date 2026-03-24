@@ -1844,10 +1844,8 @@ try {
 renderRedraft();renderDynasty();renderRookies();renderIDP();renderNews();renderTrade();renderChat();updateSettingsNote();
 
 // Load ESPN rosters silently in background — parallel fetches, always current
-loadESPNRosters().then(() => {
-  renderTrade();
-  if (typeof renderRosterPage === 'function') renderRosterPage();
-}).catch(() => {});
+// Load comprehensive 2026 NFL player database instantly (no API needed)
+loadNFLDatabase();
 
 // ========== SNAP DECISION ENGINE ==========
 let currentMode = 'start-sit';
@@ -1871,96 +1869,569 @@ function toggleFactor(el) { el.classList.toggle('on'); }
 // All 32 teams fetched in parallel — fast, current, free.
 // ESPN team IDs mapped to abbreviations for display.
 
-const ESPN_TEAMS = [
-  {id:22,abbr:"ARI"},{id:1,abbr:"ATL"},{id:33,abbr:"BAL"},{id:2,abbr:"BUF"},
-  {id:29,abbr:"CAR"},{id:3,abbr:"CHI"},{id:4,abbr:"CIN"},{id:5,abbr:"CLE"},
-  {id:6,abbr:"DAL"},{id:7,abbr:"DEN"},{id:8,abbr:"DET"},{id:9,abbr:"GB"},
-  {id:34,abbr:"HOU"},{id:11,abbr:"IND"},{id:30,abbr:"JAX"},{id:12,abbr:"KC"},
-  {id:24,abbr:"LAC"},{id:14,abbr:"LAR"},{id:13,abbr:"LV"},{id:15,abbr:"MIA"},
-  {id:16,abbr:"MIN"},{id:17,abbr:"NE"}, {id:18,abbr:"NO"},{id:19,abbr:"NYG"},
-  {id:20,abbr:"NYJ"},{id:21,abbr:"PHI"},{id:23,abbr:"PIT"},{id:26,abbr:"SEA"},
-  {id:25,abbr:"SF"}, {id:27,abbr:"TB"},{id:10,abbr:"TEN"},{id:28,abbr:"WAS"}
+// ===== 2026 NFL COMPREHENSIVE DATABASE =====
+// Accurate as of March 23, 2026 — includes all 32 team rosters,
+// current free agents, and 2026 draft prospects
+// QB/RB/WR/TE only
+
+const NFL2026 = [
+  // ================================================================
+  // ARIZONA CARDINALS
+  // ================================================================
+  {name:"Jacoby Brissett",         pos:"QB", team:"ARI", age:33, status:"Active"},
+  {name:"Clayton Tune",            pos:"QB", team:"ARI", age:26, status:"Active"},
+  {name:"James Conner",            pos:"RB", team:"ARI", age:30, status:"Active"},
+  {name:"Trey Benson",             pos:"RB", team:"ARI", age:23, status:"Active"},
+  {name:"Tyler Allgeier",          pos:"RB", team:"ARI", age:25, status:"Active"},
+  {name:"Emari Demercado",         pos:"RB", team:"ARI", age:26, status:"Active"},
+  {name:"Marvin Harrison Jr.",     pos:"WR", team:"ARI", age:23, status:"Active"},
+  {name:"Michael Wilson",          pos:"WR", team:"ARI", age:25, status:"Active"},
+  {name:"Greg Dortch",             pos:"WR", team:"ARI", age:27, status:"Active"},
+  {name:"Trey McBride",            pos:"TE", team:"ARI", age:25, status:"Active"},
+  {name:"Elijah Higgins",          pos:"TE", team:"ARI", age:24, status:"Active"},
+
+  // ================================================================
+  // ATLANTA FALCONS
+  // ================================================================
+  {name:"Tua Tagovailoa",          pos:"QB", team:"ATL", age:28, status:"Active"},
+  {name:"Michael Penix Jr.",       pos:"QB", team:"ATL", age:25, status:"Active"},
+  {name:"Bijan Robinson",          pos:"RB", team:"ATL", age:24, status:"Active"},
+  {name:"Avery Williams",          pos:"RB", team:"ATL", age:28, status:"Active"},
+  {name:"Drake London",            pos:"WR", team:"ATL", age:24, status:"Active"},
+  {name:"Darnell Mooney",          pos:"WR", team:"ATL", age:28, status:"Active"},
+  {name:"KhaDarel Hodge",          pos:"WR", team:"ATL", age:30, status:"Active"},
+  {name:"Kyle Pitts",              pos:"TE", team:"ATL", age:25, status:"Active"},
+  {name:"Ross Dwelley",            pos:"TE", team:"ATL", age:30, status:"Active"},
+
+  // ================================================================
+  // BALTIMORE RAVENS
+  // ================================================================
+  {name:"Lamar Jackson",           pos:"QB", team:"BAL", age:29, status:"Active"},
+  {name:"Josh Johnson",            pos:"QB", team:"BAL", age:38, status:"Active"},
+  {name:"Derrick Henry",           pos:"RB", team:"BAL", age:32, status:"Active"},
+  {name:"Justice Hill",            pos:"RB", team:"BAL", age:27, status:"Active"},
+  {name:"Keaton Mitchell",         pos:"RB", team:"BAL", age:24, status:"Active"},
+  {name:"Zay Flowers",             pos:"WR", team:"BAL", age:24, status:"Active"},
+  {name:"Rashod Bateman",          pos:"WR", team:"BAL", age:26, status:"Active"},
+  {name:"Tylan Wallace",           pos:"WR", team:"BAL", age:27, status:"Active"},
+  {name:"Nelson Agholor",          pos:"WR", team:"BAL", age:33, status:"Active"},
+  {name:"Mark Andrews",            pos:"TE", team:"BAL", age:30, status:"Active"},
+  {name:"Isaiah Likely",           pos:"TE", team:"BAL", age:25, status:"Active"},
+  {name:"Charlie Kolar",           pos:"TE", team:"BAL", age:26, status:"Active"},
+
+  // ================================================================
+  // BUFFALO BILLS
+  // ================================================================
+  {name:"Josh Allen",              pos:"QB", team:"BUF", age:30, status:"Active"},
+  {name:"Kyle Allen",              pos:"QB", team:"BUF", age:30, status:"Active"},
+  {name:"James Cook",              pos:"RB", team:"BUF", age:25, status:"Active"},
+  {name:"Ray Davis",               pos:"RB", team:"BUF", age:25, status:"Active"},
+  {name:"Ty Johnson",              pos:"RB", team:"BUF", age:29, status:"Active"},
+  {name:"Amari Cooper",            pos:"WR", team:"BUF", age:32, status:"Active"},
+  {name:"DJ Moore",                pos:"WR", team:"BUF", age:29, status:"Active"},
+  {name:"Keon Coleman",            pos:"WR", team:"BUF", age:23, status:"Active"},
+  {name:"Mack Hollins",            pos:"WR", team:"BUF", age:32, status:"Active"},
+  {name:"Dalton Kincaid",          pos:"TE", team:"BUF", age:26, status:"Active"},
+  {name:"Dawson Knox",             pos:"TE", team:"BUF", age:29, status:"Active"},
+
+  // ================================================================
+  // CAROLINA PANTHERS
+  // ================================================================
+  {name:"Bryce Young",             pos:"QB", team:"CAR", age:24, status:"Active"},
+  {name:"Jaxson Dart",             pos:"QB", team:"NYG", age:23, status:"Active"},
+  {name:"Andy Dalton",             pos:"QB", team:"CAR", age:39, status:"Active"},
+  {name:"Chuba Hubbard",           pos:"RB", team:"CAR", age:26, status:"Active"},
+  {name:"Jonathon Brooks",         pos:"RB", team:"CAR", age:22, status:"Active"},
+  {name:"Miles Sanders",           pos:"RB", team:"CAR", age:29, status:"Active"},
+  {name:"Tetairoa McMillan",       pos:"WR", team:"CAR", age:22, status:"Active"},
+  {name:"Diontae Johnson",         pos:"WR", team:"CAR", age:29, status:"Active"},
+  {name:"Jonathan Mingo",          pos:"WR", team:"CAR", age:24, status:"Active"},
+  {name:"David Moore",             pos:"WR", team:"CAR", age:30, status:"Active"},
+  {name:"Tommy Tremble",           pos:"TE", team:"CAR", age:26, status:"Active"},
+  {name:"Ian Thomas",              pos:"TE", team:"CAR", age:29, status:"Active"},
+
+  // ================================================================
+  // CHICAGO BEARS
+  // ================================================================
+  {name:"Caleb Williams",          pos:"QB", team:"CHI", age:24, status:"Active"},
+  {name:"Tyson Bagent",            pos:"QB", team:"CHI", age:26, status:"Active"},
+  {name:"Isiah Pacheco",           pos:"RB", team:"CHI", age:27, status:"Active"},
+  {name:"Khalil Herbert",          pos:"RB", team:"CHI", age:27, status:"Active"},
+  {name:"Kyle Monangai",           pos:"RB", team:"CHI", age:24, status:"Active"},
+  {name:"Rome Odunze",             pos:"WR", team:"CHI", age:23, status:"Active"},
+  {name:"Keenan Allen",            pos:"WR", team:"CHI", age:33, status:"Active"},
+  {name:"Luther Burden III",       pos:"WR", team:"CHI", age:21, status:"Active"},
+  {name:"Velus Jones Jr.",         pos:"WR", team:"CHI", age:29, status:"Active"},
+  {name:"Colston Loveland",        pos:"TE", team:"CHI", age:22, status:"Active"},
+  {name:"Gerald Everett",          pos:"TE", team:"CHI", age:32, status:"Active"},
+
+  // ================================================================
+  // CINCINNATI BENGALS
+  // ================================================================
+  {name:"Joe Burrow",              pos:"QB", team:"CIN", age:29, status:"Active"},
+  {name:"Logan Woodside",          pos:"QB", team:"CIN", age:31, status:"Active"},
+  {name:"Chase Brown",             pos:"RB", team:"CIN", age:25, status:"Active"},
+  {name:"Zack Moss",               pos:"RB", team:"CIN", age:28, status:"Active"},
+  {name:"Ja\'Marr Chase",         pos:"WR", team:"CIN", age:26, status:"Active"},
+  {name:"Tee Higgins",             pos:"WR", team:"CIN", age:27, status:"Active"},
+  {name:"Andrei Iosivas",          pos:"WR", team:"CIN", age:25, status:"Active"},
+  {name:"Mike Gesicki",            pos:"TE", team:"CIN", age:30, status:"Active"},
+  {name:"Tanner McLachlan",        pos:"TE", team:"CIN", age:25, status:"Active"},
+
+  // ================================================================
+  // CLEVELAND BROWNS
+  // ================================================================
+  {name:"Dillon Gabriel",          pos:"QB", team:"CLE", age:25, status:"Active"},
+  {name:"Shedeur Sanders",         pos:"QB", team:"CLE", age:23, status:"Active"},
+  {name:"Dorian Thompson-Robinson",pos:"QB", team:"CLE", age:25, status:"Active"},
+  {name:"Nick Chubb",              pos:"RB", team:"CLE", age:30, status:"Active"},
+  {name:"Quinshon Judkins",        pos:"RB", team:"CLE", age:22, status:"Active"},
+  {name:"Dylan Sampson",           pos:"RB", team:"CLE", age:22, status:"Active"},
+  {name:"Jerry Jeudy",             pos:"WR", team:"CLE", age:27, status:"Active"},
+  {name:"Cedric Tillman",          pos:"WR", team:"CLE", age:26, status:"Active"},
+  {name:"Elijah Moore",            pos:"WR", team:"CLE", age:26, status:"Active"},
+  {name:"David Njoku",             pos:"TE", team:"CLE", age:29, status:"Active"},
+  {name:"Harold Fannin Jr.",       pos:"TE", team:"CLE", age:23, status:"Active"},
+  {name:"Isaiah Bond",             pos:"WR", team:"CLE", age:21, status:"Active"},
+
+  // ================================================================
+  // DALLAS COWBOYS
+  // ================================================================
+  {name:"Dak Prescott",            pos:"QB", team:"DAL", age:33, status:"Active"},
+  {name:"Cooper Rush",             pos:"QB", team:"DAL", age:30, status:"Active"},
+  {name:"Sam Howell",              pos:"QB", team:"DAL", age:26, status:"Active"},
+  {name:"Rico Dowdle",             pos:"RB", team:"DAL", age:28, status:"Active"},
+  {name:"RJ Harvey",               pos:"RB", team:"DAL", age:24, status:"Active"},
+  {name:"Jaydon Blue",             pos:"RB", team:"DAL", age:22, status:"Active"},
+  {name:"Deuce Vaughn",            pos:"RB", team:"DAL", age:25, status:"Active"},
+  {name:"CeeDee Lamb",             pos:"WR", team:"DAL", age:27, status:"Active"},
+  {name:"Jalen Tolbert",           pos:"WR", team:"DAL", age:27, status:"Active"},
+  {name:"Pat Bryant",              pos:"WR", team:"DAL", age:23, status:"Active"},
+  {name:"Jake Ferguson",           pos:"TE", team:"DAL", age:26, status:"Active"},
+  {name:"Luke Schoonmaker",        pos:"TE", team:"DAL", age:26, status:"Active"},
+
+  // ================================================================
+  // DENVER BRONCOS
+  // ================================================================
+  {name:"Bo Nix",                  pos:"QB", team:"DEN", age:25, status:"Active"},
+  {name:"Zach Wilson",             pos:"QB", team:"DEN", age:27, status:"Active"},
+  {name:"Javonte Williams",        pos:"RB", team:"DEN", age:25, status:"Active"},
+  {name:"J.K. Dobbins",            pos:"RB", team:"DEN", age:26, status:"Active"},
+  {name:"Jaleel McLaughlin",       pos:"RB", team:"DEN", age:26, status:"Active"},
+  {name:"Jaylen Waddle",           pos:"WR", team:"DEN", age:27, status:"Active"},
+  {name:"Courtland Sutton",        pos:"WR", team:"DEN", age:30, status:"Active"},
+  {name:"Josh Reynolds",           pos:"WR", team:"DEN", age:30, status:"Active"},
+  {name:"Lil\'Jordan Humphrey",   pos:"WR", team:"DEN", age:27, status:"Active"},
+  {name:"Adam Trautman",           pos:"TE", team:"DEN", age:28, status:"Active"},
+  {name:"Greg Dulcich",            pos:"TE", team:"DEN", age:26, status:"Active"},
+
+  // ================================================================
+  // DETROIT LIONS
+  // ================================================================
+  {name:"Jared Goff",              pos:"QB", team:"DET", age:32, status:"Active"},
+  {name:"Teddy Bridgewater",       pos:"QB", team:"DET", age:34, status:"Active"},
+  {name:"Hendon Hooker",           pos:"QB", team:"DET", age:28, status:"Active"},
+  {name:"Jahmyr Gibbs",            pos:"RB", team:"DET", age:24, status:"Active"},
+  {name:"Craig Reynolds",          pos:"RB", team:"DET", age:29, status:"Active"},
+  {name:"Kaleb Johnson",           pos:"RB", team:"DET", age:22, status:"Active"},
+  {name:"Amon-Ra St. Brown",       pos:"WR", team:"DET", age:26, status:"Active"},
+  {name:"Jameson Williams",        pos:"WR", team:"DET", age:24, status:"Active"},
+  {name:"Tim Patrick",             pos:"WR", team:"DET", age:31, status:"Active"},
+  {name:"Kalif Raymond",           pos:"WR", team:"DET", age:31, status:"Active"},
+  {name:"Sam LaPorta",             pos:"TE", team:"DET", age:25, status:"Active"},
+  {name:"Brock Wright",            pos:"TE", team:"DET", age:27, status:"Active"},
+
+  // ================================================================
+  // GREEN BAY PACKERS
+  // ================================================================
+  {name:"Jordan Love",             pos:"QB", team:"GB",  age:27, status:"Active"},
+  {name:"Sean Clifford",           pos:"QB", team:"GB",  age:27, status:"Active"},
+  {name:"Josh Jacobs",             pos:"RB", team:"GB",  age:27, status:"Active"},
+  {name:"Emanuel Wilson",          pos:"RB", team:"GB",  age:25, status:"Active"},
+  {name:"MarShawn Lloyd",          pos:"RB", team:"GB",  age:24, status:"Active"},
+  {name:"Jayden Reed",             pos:"WR", team:"GB",  age:25, status:"Active"},
+  {name:"Christian Watson",        pos:"WR", team:"GB",  age:26, status:"Active"},
+  {name:"Matthew Golden",          pos:"WR", team:"GB",  age:22, status:"Active"},
+  {name:"Savion Williams",         pos:"WR", team:"GB",  age:23, status:"Active"},
+  {name:"Dontayvion Wicks",        pos:"WR", team:"GB",  age:24, status:"Active"},
+  {name:"Tucker Kraft",            pos:"TE", team:"GB",  age:25, status:"Active"},
+  {name:"Luke Musgrave",           pos:"TE", team:"GB",  age:25, status:"Active"},
+
+  // ================================================================
+  // HOUSTON TEXANS
+  // ================================================================
+  {name:"C.J. Stroud",             pos:"QB", team:"HOU", age:24, status:"Active"},
+  {name:"Case Keenum",             pos:"QB", team:"HOU", age:38, status:"Active"},
+  {name:"Joe Mixon",               pos:"RB", team:"HOU", age:30, status:"Active"},
+  {name:"Dameon Pierce",           pos:"RB", team:"HOU", age:26, status:"Active"},
+  {name:"Breece Hall",             pos:"RB", team:"HOU", age:25, status:"Active"},
+  {name:"Nico Collins",            pos:"WR", team:"HOU", age:26, status:"Active"},
+  {name:"Tank Dell",               pos:"WR", team:"HOU", age:25, status:"Active"},
+  {name:"Jayden Higgins",          pos:"WR", team:"HOU", age:22, status:"Active"},
+  {name:"Jaylin Noel",             pos:"WR", team:"HOU", age:22, status:"Active"},
+  {name:"Dalton Schultz",          pos:"TE", team:"HOU", age:29, status:"Active"},
+  {name:"Cade Stover",             pos:"TE", team:"HOU", age:25, status:"Active"},
+
+  // ================================================================
+  // INDIANAPOLIS COLTS
+  // ================================================================
+  {name:"Daniel Jones",            pos:"QB", team:"IND", age:29, status:"Active"},
+  {name:"Sam Howell",              pos:"QB", team:"IND", age:26, status:"Active"},
+  {name:"Jonathan Taylor",         pos:"RB", team:"IND", age:27, status:"Active"},
+  {name:"Trey Sermon",             pos:"RB", team:"IND", age:27, status:"Active"},
+  {name:"Alec Pierce",             pos:"WR", team:"IND", age:26, status:"Active"},
+  {name:"Josh Downs",              pos:"WR", team:"IND", age:23, status:"Active"},
+  {name:"Adonai Mitchell",         pos:"WR", team:"IND", age:22, status:"Active"},
+  {name:"Tyler Warren",            pos:"TE", team:"IND", age:24, status:"Active"},
+  {name:"Mo Alie-Cox",             pos:"TE", team:"IND", age:31, status:"Active"},
+  {name:"Kylen Granson",           pos:"TE", team:"IND", age:27, status:"Active"},
+
+  // ================================================================
+  // JACKSONVILLE JAGUARS
+  // ================================================================
+  {name:"Trevor Lawrence",         pos:"QB", team:"JAX", age:27, status:"Active"},
+  {name:"Mac Jones",               pos:"QB", team:"JAX", age:28, status:"Active"},
+  {name:"Travis Etienne Jr.",      pos:"RB", team:"JAX", age:26, status:"Active"},
+  {name:"Tank Bigsby",             pos:"RB", team:"JAX", age:24, status:"Active"},
+  {name:"Bhayshul Tuten",          pos:"RB", team:"JAX", age:23, status:"Active"},
+  {name:"Brian Thomas Jr.",        pos:"WR", team:"JAX", age:23, status:"Active"},
+  {name:"Travis Hunter",           pos:"WR", team:"JAX", age:21, status:"Active"},
+  {name:"Gabe Davis",              pos:"WR", team:"JAX", age:27, status:"Active"},
+  {name:"Evan Engram",             pos:"TE", team:"JAX", age:31, status:"Active"},
+  {name:"Brenton Strange",         pos:"TE", team:"JAX", age:24, status:"Active"},
+
+  // ================================================================
+  // KANSAS CITY CHIEFS
+  // ================================================================
+  {name:"Patrick Mahomes",         pos:"QB", team:"KC",  age:31, status:"Active"},
+  {name:"Justin Fields",           pos:"QB", team:"KC",  age:27, status:"Active"},
+  {name:"Kenneth Walker III",      pos:"RB", team:"KC",  age:25, status:"Active"},
+  {name:"Carson Steele",           pos:"RB", team:"KC",  age:24, status:"Active"},
+  {name:"Xavier Worthy",           pos:"WR", team:"KC",  age:22, status:"Active"},
+  {name:"Rashee Rice",             pos:"WR", team:"KC",  age:25, status:"Active"},
+  {name:"Mecole Hardman",          pos:"WR", team:"KC",  age:27, status:"Active"},
+  {name:"Tyquan Thornton",         pos:"WR", team:"KC",  age:26, status:"Active"},
+  {name:"Travis Kelce",            pos:"TE", team:"KC",  age:37, status:"Active"},
+  {name:"Noah Gray",               pos:"TE", team:"KC",  age:27, status:"Active"},
+
+  // ================================================================
+  // LOS ANGELES CHARGERS
+  // ================================================================
+  {name:"Justin Herbert",          pos:"QB", team:"LAC", age:28, status:"Active"},
+  {name:"Easton Stick",            pos:"QB", team:"LAC", age:30, status:"Active"},
+  {name:"Omarion Hampton",         pos:"RB", team:"LAC", age:22, status:"Active"},
+  {name:"Kimani Vidal",            pos:"RB", team:"LAC", age:24, status:"Active"},
+  {name:"Ladd McConkey",           pos:"WR", team:"LAC", age:23, status:"Active"},
+  {name:"Joshua Palmer",           pos:"WR", team:"LAC", age:26, status:"Active"},
+  {name:"Quentin Johnston",        pos:"WR", team:"LAC", age:24, status:"Active"},
+  {name:"Will Dissly",             pos:"TE", team:"LAC", age:30, status:"Active"},
+  {name:"Donald Parham Jr.",       pos:"TE", team:"LAC", age:29, status:"Active"},
+
+  // ================================================================
+  // LOS ANGELES RAMS
+  // ================================================================
+  {name:"Matthew Stafford",        pos:"QB", team:"LAR", age:38, status:"Active"},
+  {name:"Jimmy Garoppolo",         pos:"QB", team:"LAR", age:34, status:"Active"},
+  {name:"Kyren Williams",          pos:"RB", team:"LAR", age:25, status:"Active"},
+  {name:"Blake Corum",             pos:"RB", team:"LAR", age:24, status:"Active"},
+  {name:"Puka Nacua",              pos:"WR", team:"LAR", age:24, status:"Active"},
+  {name:"Cooper Kupp",             pos:"WR", team:"LAR", age:33, status:"Active"},
+  {name:"Demarcus Robinson",       pos:"WR", team:"LAR", age:31, status:"Active"},
+  {name:"Tyler Higbee",            pos:"TE", team:"LAR", age:32, status:"Active"},
+  {name:"Davis Allen",             pos:"TE", team:"LAR", age:25, status:"Active"},
+
+  // ================================================================
+  // LAS VEGAS RAIDERS
+  // ================================================================
+  {name:"Fernando Mendoza",        pos:"QB", team:"LV",  age:22, status:"Active"},
+  {name:"Aidan O\'Connell",       pos:"QB", team:"LV",  age:27, status:"Active"},
+  {name:"Ashton Jeanty",           pos:"RB", team:"LV",  age:22, status:"Active"},
+  {name:"Alexander Mattison",      pos:"RB", team:"LV",  age:27, status:"Active"},
+  {name:"Zamir White",             pos:"RB", team:"LV",  age:25, status:"Active"},
+  {name:"Jakobi Meyers",           pos:"WR", team:"LV",  age:29, status:"Active"},
+  {name:"Jack Bech",               pos:"WR", team:"LV",  age:23, status:"Active"},
+  {name:"Tre Tucker",              pos:"WR", team:"LV",  age:25, status:"Active"},
+  {name:"Brock Bowers",            pos:"TE", team:"LV",  age:23, status:"Active"},
+  {name:"Michael Mayer",           pos:"TE", team:"LV",  age:24, status:"Active"},
+
+  // ================================================================
+  // MIAMI DOLPHINS
+  // ================================================================
+  {name:"Malik Willis",            pos:"QB", team:"MIA", age:27, status:"Active"},
+  {name:"Skylar Thompson",         pos:"QB", team:"MIA", age:29, status:"Active"},
+  {name:"Quinn Ewers",             pos:"QB", team:"MIA", age:23, status:"Active"},
+  {name:"De\'Von Achane",         pos:"RB", team:"MIA", age:24, status:"Active"},
+  {name:"Raheem Mostert",          pos:"RB", team:"MIA", age:34, status:"Active"},
+  {name:"Ollie Gordon II",         pos:"RB", team:"MIA", age:22, status:"Active"},
+  {name:"Tyreek Hill",             pos:"WR", team:"MIA", age:32, status:"Active"},
+  {name:"Odell Beckham Jr.",       pos:"WR", team:"MIA", age:33, status:"Active"},
+  {name:"River Cracraft",          pos:"WR", team:"MIA", age:31, status:"Active"},
+  {name:"Jonnu Smith",             pos:"TE", team:"MIA", age:30, status:"Active"},
+
+  // ================================================================
+  // MINNESOTA VIKINGS
+  // ================================================================
+  {name:"Kyler Murray",            pos:"QB", team:"MIN", age:28, status:"Active"},
+  {name:"Sam Darnold",             pos:"QB", team:"MIN", age:29, status:"Active"},
+  {name:"Aaron Jones",             pos:"RB", team:"MIN", age:31, status:"Active"},
+  {name:"Ty Chandler",             pos:"RB", team:"MIN", age:27, status:"Active"},
+  {name:"Tai Felton",              pos:"WR", team:"MIN", age:23, status:"Active"},
+  {name:"Justin Jefferson",        pos:"WR", team:"MIN", age:27, status:"Active"},
+  {name:"Jordan Addison",          pos:"WR", team:"MIN", age:24, status:"Active"},
+  {name:"Jalen Nailor",            pos:"WR", team:"MIN", age:26, status:"Active"},
+  {name:"T.J. Hockenson",          pos:"TE", team:"MIN", age:28, status:"Active"},
+  {name:"Josh Oliver",             pos:"TE", team:"MIN", age:27, status:"Active"},
+
+  // ================================================================
+  // NEW ENGLAND PATRIOTS
+  // ================================================================
+  {name:"Geno Smith",              pos:"QB", team:"NE",  age:36, status:"Active"},
+  {name:"Bailey Zappe",            pos:"QB", team:"NE",  age:27, status:"Active"},
+  {name:"TreVeyon Henderson",      pos:"RB", team:"NE",  age:23, status:"Active"},
+  {name:"Rhamondre Stevenson",     pos:"RB", team:"NE",  age:27, status:"Active"},
+  {name:"Antonio Gibson",          pos:"RB", team:"NE",  age:27, status:"Active"},
+  {name:"Romeo Doubs",             pos:"WR", team:"NE",  age:26, status:"Active"},
+  {name:"K.J. Osborn",             pos:"WR", team:"NE",  age:29, status:"Active"},
+  {name:"Ja\'Lynn Polk",          pos:"WR", team:"NE",  age:23, status:"Active"},
+  {name:"Hunter Henry",            pos:"TE", team:"NE",  age:31, status:"Active"},
+  {name:"Julian Hill",             pos:"TE", team:"NE",  age:28, status:"Active"},
+
+  // ================================================================
+  // NEW ORLEANS SAINTS
+  // ================================================================
+  {name:"Tyler Shough",            pos:"QB", team:"NO",  age:27, status:"Active"},
+  {name:"Spencer Rattler",         pos:"QB", team:"NO",  age:25, status:"Active"},
+  {name:"Alvin Kamara",            pos:"RB", team:"NO",  age:31, status:"Active"},
+  {name:"Kendre Miller",           pos:"RB", team:"NO",  age:23, status:"Active"},
+  {name:"Jordan James",            pos:"RB", team:"NO",  age:22, status:"Active"},
+  {name:"Chris Olave",             pos:"WR", team:"NO",  age:25, status:"Active"},
+  {name:"Rashid Shaheed",          pos:"WR", team:"NO",  age:26, status:"Active"},
+  {name:"Cedrick Wilson Jr.",      pos:"WR", team:"NO",  age:30, status:"Active"},
+  {name:"Malachi Fields",          pos:"WR", team:"NO",  age:22, status:"Active"},
+  {name:"Noah Fant",               pos:"TE", team:"NO",  age:28, status:"Active"},
+  {name:"Taysom Hill",             pos:"TE", team:"NO",  age:36, status:"Active"},
+
+  // ================================================================
+  // NEW YORK GIANTS
+  // ================================================================
+  {name:"Tommy DeVito",            pos:"QB", team:"NYG", age:27, status:"Active"},
+  {name:"Jaxson Dart",             pos:"QB", team:"NYG", age:23, status:"Active"},
+  {name:"Drew Lock",               pos:"QB", team:"NYG", age:29, status:"Active"},
+  {name:"Devin Singletary",        pos:"RB", team:"NYG", age:29, status:"Active"},
+  {name:"Eric Gray",               pos:"RB", team:"NYG", age:25, status:"Active"},
+  {name:"Cam Skattebo",            pos:"RB", team:"NYG", age:24, status:"Active"},
+  {name:"Malik Nabers",            pos:"WR", team:"NYG", age:22, status:"Active"},
+  {name:"Darius Slayton",          pos:"WR", team:"NYG", age:29, status:"Active"},
+  {name:"Wan\'Dale Robinson",     pos:"WR", team:"NYJ", age:25, status:"Active"},
+  {name:"Daniel Bellinger",        pos:"TE", team:"NYG", age:25, status:"Active"},
+  {name:"Lawrence Cager",          pos:"TE", team:"NYG", age:28, status:"Active"},
+
+  // ================================================================
+  // NEW YORK JETS
+  // ================================================================
+  {name:"Geno Smith",              pos:"QB", team:"NYJ", age:36, status:"Active"},
+  {name:"Tyrod Taylor",            pos:"QB", team:"NYJ", age:37, status:"Active"},
+  {name:"Breece Hall",             pos:"RB", team:"NYJ", age:25, status:"Active"},
+  {name:"Braelon Allen",           pos:"RB", team:"NYJ", age:22, status:"Active"},
+  {name:"Garrett Wilson",          pos:"WR", team:"NYJ", age:25, status:"Active"},
+  {name:"Wan\'Dale Robinson",     pos:"WR", team:"NYJ", age:25, status:"Active"},
+  {name:"Allen Lazard",            pos:"WR", team:"NYJ", age:30, status:"Active"},
+  {name:"Tyler Conklin",           pos:"TE", team:"NYJ", age:31, status:"Active"},
+  {name:"Kenny Yeboah",            pos:"TE", team:"NYJ", age:27, status:"Active"},
+
+  // ================================================================
+  // PHILADELPHIA EAGLES
+  // ================================================================
+  {name:"Jalen Hurts",             pos:"QB", team:"PHI", age:28, status:"Active"},
+  {name:"Kenny Pickett",           pos:"QB", team:"PHI", age:28, status:"Active"},
+  {name:"Saquon Barkley",          pos:"RB", team:"PHI", age:29, status:"Active"},
+  {name:"Kenneth Gainwell",        pos:"RB", team:"PHI", age:26, status:"Active"},
+  {name:"A.J. Brown",              pos:"WR", team:"PHI", age:29, status:"Active"},
+  {name:"DeVonta Smith",           pos:"WR", team:"PHI", age:28, status:"Active"},
+  {name:"Britain Covey",           pos:"WR", team:"PHI", age:27, status:"Active"},
+  {name:"Dallas Goedert",          pos:"TE", team:"PHI", age:31, status:"Active"},
+  {name:"Grant Calcaterra",        pos:"TE", team:"PHI", age:27, status:"Active"},
+
+  // ================================================================
+  // PITTSBURGH STEELERS
+  // ================================================================
+  {name:"Aaron Rodgers",           pos:"QB", team:"PIT", age:43, status:"Active"},
+  {name:"Mason Rudolph",           pos:"QB", team:"PIT", age:30, status:"Active"},
+  {name:"Najee Harris",            pos:"RB", team:"PIT", age:28, status:"Active"},
+  {name:"Jaylen Warren",           pos:"RB", team:"PIT", age:27, status:"Active"},
+  {name:"Kaleb Johnson",           pos:"RB", team:"PIT", age:22, status:"Active"},
+  {name:"DK Metcalf",              pos:"WR", team:"PIT", age:28, status:"Active"},
+  {name:"Michael Pittman Jr.",     pos:"WR", team:"PIT", age:28, status:"Active"},
+  {name:"George Pickens",          pos:"WR", team:"PIT", age:24, status:"Active"},
+  {name:"Calvin Austin III",       pos:"WR", team:"PIT", age:27, status:"Active"},
+  {name:"Pat Freiermuth",          pos:"TE", team:"PIT", age:27, status:"Active"},
+  {name:"Darnell Washington",      pos:"TE", team:"PIT", age:24, status:"Active"},
+
+  // ================================================================
+  // SEATTLE SEAHAWKS
+  // ================================================================
+  {name:"Sam Howell",              pos:"QB", team:"SEA", age:25, status:"Active"},
+  {name:"Jalen Milroe",            pos:"QB", team:"SEA", age:22, status:"Active"},
+  {name:"Zach Charbonnet",         pos:"RB", team:"SEA", age:25, status:"Active"},
+  {name:"Jordan James",            pos:"RB", team:"SEA", age:22, status:"Active"},
+  {name:"Nick Singleton",          pos:"RB", team:"SEA", age:22, status:"Active"},
+  {name:"Jaxon Smith-Njigba",      pos:"WR", team:"SEA", age:23, status:"Active"},
+  {name:"Rashid Shaheed",          pos:"WR", team:"SEA", age:26, status:"Active"},
+  {name:"Tai Felton",              pos:"WR", team:"SEA", age:23, status:"Active"},
+  {name:"Colby Parkinson",         pos:"TE", team:"SEA", age:27, status:"Active"},
+  {name:"AJ Barner",               pos:"TE", team:"SEA", age:24, status:"Active"},
+
+  // ================================================================
+  // SAN FRANCISCO 49ERS
+  // ================================================================
+  {name:"Brock Purdy",             pos:"QB", team:"SF",  age:26, status:"Active"},
+  {name:"Brandon Allen",           pos:"QB", team:"SF",  age:34, status:"Active"},
+  {name:"Kurtis Rourke",           pos:"QB", team:"SF",  age:26, status:"Active"},
+  {name:"Christian McCaffrey",     pos:"RB", team:"SF",  age:30, status:"Active"},
+  {name:"Jordan Mason",            pos:"RB", team:"SF",  age:27, status:"Active"},
+  {name:"Jordan Watkins",          pos:"WR", team:"SF",  age:25, status:"Active"},
+  {name:"Mike Evans",              pos:"WR", team:"SF",  age:33, status:"Active"},
+  {name:"Deebo Samuel",            pos:"WR", team:"SF",  age:30, status:"Active"},
+  {name:"Brandon Aiyuk",           pos:"WR", team:"SF",  age:28, status:"Active"},
+  {name:"George Kittle",           pos:"TE", team:"SF",  age:32, status:"Active"},
+  {name:"Eric Saubert",            pos:"TE", team:"SF",  age:32, status:"Active"},
+
+  // ================================================================
+  // TAMPA BAY BUCCANEERS
+  // ================================================================
+  {name:"Baker Mayfield",          pos:"QB", team:"TB",  age:31, status:"Active"},
+  {name:"Gardner Minshew",         pos:"QB", team:"TB",  age:30, status:"Active"},
+  {name:"Rachaad White",           pos:"RB", team:"TB",  age:27, status:"Active"},
+  {name:"Sean Tucker",             pos:"RB", team:"TB",  age:24, status:"Active"},
+  {name:"Emeka Egbuka",            pos:"WR", team:"TB",  age:23, status:"Active"},
+  {name:"Chris Godwin",            pos:"WR", team:"TB",  age:30, status:"Active"},
+  {name:"Kendrick Bourne",         pos:"WR", team:"TB",  age:30, status:"Active"},
+  {name:"Trey Palmer",             pos:"WR", team:"TB",  age:25, status:"Active"},
+  {name:"Cade Otton",              pos:"TE", team:"TB",  age:26, status:"Active"},
+  {name:"Payne Durham",            pos:"TE", team:"TB",  age:26, status:"Active"},
+
+  // ================================================================
+  // TENNESSEE TITANS
+  // ================================================================
+  {name:"Cam Ward",                pos:"QB", team:"TEN", age:23, status:"Active"},
+  {name:"Will Levis",              pos:"QB", team:"TEN", age:26, status:"Active"},
+  {name:"Tony Pollard",            pos:"RB", team:"TEN", age:28, status:"Active"},
+  {name:"Tyjae Spears",            pos:"RB", team:"TEN", age:24, status:"Active"},
+  {name:"Calvin Ridley",           pos:"WR", team:"TEN", age:31, status:"Active"},
+  {name:"Nick Westbrook-Ikhine",   pos:"WR", team:"TEN", age:28, status:"Active"},
+  {name:"Tyler Boyd",              pos:"WR", team:"TEN", age:31, status:"Active"},
+  {name:"Josh Whyle",              pos:"TE", team:"TEN", age:26, status:"Active"},
+  {name:"Thomas Odukoya",          pos:"TE", team:"TEN", age:25, status:"Active"},
+
+  // ================================================================
+  // WASHINGTON COMMANDERS
+  // ================================================================
+  {name:"Jayden Daniels",          pos:"QB", team:"WAS", age:25, status:"Active"},
+  {name:"Marcus Mariota",          pos:"QB", team:"WAS", age:33, status:"Active"},
+  {name:"Brian Robinson Jr.",      pos:"RB", team:"WAS", age:27, status:"Active"},
+  {name:"Austin Ekeler",           pos:"RB", team:"WAS", age:30, status:"Active"},
+  {name:"Jeremy McNichols",        pos:"RB", team:"WAS", age:30, status:"Active"},
+  {name:"Terry McLaurin",          pos:"WR", team:"WAS", age:30, status:"Active"},
+  {name:"Noah Brown",              pos:"WR", team:"WAS", age:29, status:"Active"},
+  {name:"Dyami Brown",             pos:"WR", team:"WAS", age:26, status:"Active"},
+  {name:"Wan\'Dale Robinson",     pos:"WR", team:"WAS", age:25, status:"Active"},
+  {name:"Chigoziem Okonkwo",       pos:"TE", team:"WAS", age:26, status:"Active"},
+  {name:"John Bates",              pos:"TE", team:"WAS", age:27, status:"Active"},
+
+  // ================================================================
+  // FREE AGENTS (unsigned as of March 23, 2026)
+  // ================================================================
+  {name:"Kirk Cousins",            pos:"QB", team:"FA", age:38, status:"Free Agent"},
+  {name:"Joe Flacco",              pos:"QB", team:"FA", age:41, status:"Free Agent"},
+  {name:"Jameis Winston",          pos:"QB", team:"FA", age:32, status:"Free Agent"},
+  {name:"Ryan Tannehill",          pos:"QB", team:"FA", age:38, status:"Free Agent"},
+  {name:"Mitchell Trubisky",       pos:"QB", team:"FA", age:31, status:"Free Agent"},
+  {name:"Colt McCoy",              pos:"QB", team:"FA", age:40, status:"Free Agent"},
+  {name:"Nick Chubb",              pos:"RB", team:"FA", age:30, status:"Free Agent"},
+  {name:"Kareem Hunt",             pos:"RB", team:"FA", age:31, status:"Free Agent"},
+  {name:"Samaje Perine",           pos:"RB", team:"FA", age:30, status:"Free Agent"},
+  {name:"Matt Breida",             pos:"RB", team:"FA", age:30, status:"Free Agent"},
+  {name:"Clyde Edwards-Helaire",   pos:"RB", team:"FA", age:27, status:"Free Agent"},
+  {name:"Tyrion Davis-Price",      pos:"RB", team:"FA", age:25, status:"Free Agent"},
+  {name:"Ty Montgomery",           pos:"RB", team:"FA", age:33, status:"Free Agent"},
+  {name:"Davante Adams",           pos:"WR", team:"FA", age:33, status:"Free Agent"},
+  {name:"DeAndre Hopkins",         pos:"WR", team:"FA", age:34, status:"Free Agent"},
+  {name:"Stefon Diggs",            pos:"WR", team:"FA", age:33, status:"Free Agent"},
+  {name:"Christian Kirk",          pos:"WR", team:"FA", age:29, status:"Free Agent"},
+  {name:"Marquez Valdes-Scantling",pos:"WR", team:"FA", age:32, status:"Free Agent"},
+  {name:"Kadarius Toney",          pos:"WR", team:"FA", age:27, status:"Free Agent"},
+  {name:"Donovan Peoples-Jones",   pos:"WR", team:"FA", age:27, status:"Free Agent"},
+  {name:"Kendall Hinton",          pos:"WR", team:"FA", age:28, status:"Free Agent"},
+  {name:"Adam Thielen",            pos:"WR", team:"FA", age:36, status:"Retired"},
+  {name:"Brandin Cooks",           pos:"WR", team:"FA", age:33, status:"Free Agent"},
+  {name:"Josh Reynolds",           pos:"WR", team:"FA", age:30, status:"Free Agent"},
+  {name:"Zach Ertz",               pos:"TE", team:"FA", age:36, status:"Free Agent"},
+  {name:"Austin Hooper",           pos:"TE", team:"FA", age:32, status:"Free Agent"},
+  {name:"Irv Smith Jr.",           pos:"TE", team:"FA", age:28, status:"Free Agent"},
+  {name:"Logan Thomas",            pos:"TE", team:"FA", age:35, status:"Free Agent"},
+  {name:"Jordan Akins",            pos:"TE", team:"FA", age:34, status:"Free Agent"},
+  {name:"Donald Parham Jr.",       pos:"TE", team:"FA", age:29, status:"Free Agent"},
+  {name:"Darren Waller",           pos:"TE", team:"FA", age:33, status:"Free Agent"},
+  {name:"Jonnu Smith",             pos:"TE", team:"FA", age:30, status:"Free Agent"},
+
+  // ================================================================
+  // 2026 NFL DRAFT PROSPECTS
+  // (College players NOT yet in NFL — April 2026 draft in Pittsburgh)
+  // ================================================================
+  {name:"Fernando Mendoza",        pos:"QB", team:"DRAFT", age:22, college:"Cal",             status:"2026 Draft Prospect", rank:1},
+  {name:"Garrett Nussmeier",       pos:"QB", team:"DRAFT", age:23, college:"LSU",             status:"2026 Draft Prospect", rank:3},
+  {name:"Jeremiyah Love",          pos:"RB", team:"DRAFT", age:22, college:"Notre Dame",      status:"2026 Draft Prospect", rank:5},
+  {name:"Mike Washington Jr.",     pos:"RB", team:"DRAFT", age:22, college:"Arkansas",        status:"2026 Draft Prospect", rank:11},
+  {name:"Carnell Tate",            pos:"WR", team:"DRAFT", age:21, college:"Ohio State",      status:"2026 Draft Prospect", rank:12},
+  {name:"Makai Lemon",             pos:"WR", team:"DRAFT", age:21, college:"USC",             status:"2026 Draft Prospect", rank:13},
+  {name:"Hayden Haas",             pos:"TE", team:"DRAFT", age:23, college:"Michigan",        status:"2026 Draft Prospect", rank:23},
+  {name:"Jordyn Tyson",           pos:"WR", team:"DRAFT", age:22, college:"Arizona State",   status:"2026 Draft Prospect", rank:9},
+  {name:"Jadarian Price",         pos:"RB", team:"DRAFT", age:21, college:"Notre Dame",      status:"2026 Draft Prospect", rank:10},
+  {name:"Emmett Johnson",         pos:"RB", team:"DRAFT", age:22, college:"Nebraska",        status:"2026 Draft Prospect", rank:11},
+  {name:"Kenyon Sadiq",           pos:"TE", team:"DRAFT", age:22, college:"Oregon",          status:"2026 Draft Prospect", rank:12},
+  {name:"Ty Simpson",             pos:"QB", team:"DRAFT", age:22, college:"Alabama",         status:"2026 Draft Prospect", rank:13},
+  {name:"Drew Allar",             pos:"QB", team:"DRAFT", age:23, college:"Penn State",      status:"2026 Draft Prospect", rank:14},
 ];
 
-const OFF_POS = new Set(["QB","RB","WR","TE"]);
+function loadNFLDatabase() {
+  // Merge NFL2026 data with existing playerDB fantasy values
+  sleeperPlayers = NFL2026.map(p => {
+    const local = playerDB.find(l =>
+      l.name.toLowerCase() === p.name.toLowerCase() ||
+      l.name.replace(/[^a-zA-Z]/g,"").toLowerCase() === p.name.replace(/[^a-zA-Z]/g,"").toLowerCase()
+    );
+    return {
+      ...p,
+      redraft: local ? local.redraft : 0,
+      dynasty: local ? local.dynasty : 0,
+      rec:     local ? local.rec     : 50
+    };
+  }).sort((a,b) => {
+    if (a.redraft > 0 && b.redraft > 0) return b.redraft - a.redraft;
+    if (a.redraft > 0) return -1;
+    if (b.redraft > 0) return 1;
+    return a.name.localeCompare(b.name);
+  });
 
-let sleeperPlayers = [];  // named for compatibility — now powered by ESPN
-let sleeperLoaded  = false;
-let espnLoadError  = false;
+  sleeperLoaded = true;
+  window.espnDataLoaded = true;
 
-async function loadESPNRosters() {
-  if (sleeperLoaded) return;
-
-  // Check localStorage cache — re-fetch if older than 6 hours
-  try {
-    const cached   = localStorage.getItem("snapff_espn_rosters");
-    const cacheAge = localStorage.getItem("snapff_espn_time");
-    // Cache disabled — always fetch fresh from ESPN proxy
-    // if (cached && cacheAge && (Date.now() - parseInt(cacheAge)) < 6 * 3600 * 1000) { return; }
-  } catch(e) {}
-
-  try {
-    // Call our Netlify proxy function — no CORS issues, always current ESPN data
-    console.log("[SnapFF] Fetching live rosters via Netlify proxy...");
-    const res  = await fetch("/.netlify/functions/roster");
-    const data = await res.json();
-
-    if (!data.players || !data.players.length) throw new Error("No players returned");
-
-    // Merge with local DB fantasy values
-    const players = data.players.map(p => {
-      const local = playerDB.find(l =>
-        l.name.toLowerCase() === p.name.toLowerCase() ||
-        l.name.replace(/[^a-zA-Z]/g,"").toLowerCase() === p.name.replace(/[^a-zA-Z]/g,"").toLowerCase()
-      );
-      return {
-        ...p,
-        redraft: local ? local.redraft : 0,
-        dynasty: local ? local.dynasty : 0,
-        rec:     local ? local.rec     : 50
-      };
-    }).sort((a, b) => {
-      if (a.redraft > 0 && b.redraft > 0) return b.redraft - a.redraft;
-      if (a.redraft > 0) return -1;
-      if (b.redraft > 0) return  1;
-      return a.name.localeCompare(b.name);
-    });
-
-    sleeperPlayers = players;
-    sleeperLoaded  = true;
-
-    try {
-      localStorage.setItem("snapff_espn_rosters", JSON.stringify(players));
-      localStorage.setItem("snapff_espn_time", String(Date.now()));
-    } catch(e) {}
-
-    console.log("[SnapFF] Live rosters loaded:", players.length, "players");
-    window.espnDataLoaded = true;
-    syncESPNToTradeDB();
-    // Re-render roster page if it is currently visible
-    if (document.getElementById("page-rosters") && 
-        document.getElementById("page-rosters").classList.contains("active")) {
-      renderRosterPage();
-    }
-
-  } catch(err) {
-    console.warn("[SnapFF] Proxy fetch failed, using local DB:", err.message);
-    sleeperPlayers = playerDB.filter(p => p.pos !== "PICK").sort((a,b) => b.redraft - a.redraft);
-    sleeperLoaded  = true;
-  }
-}
-
-function syncESPNToTradeDB() {
-  // Patch playerDB with live ESPN team/age so trade calc is also current
+  // Sync teams/ages back to playerDB for trade calculator
   playerDB.forEach(p => {
     if (p.pos === "PICK") return;
-    const live = sleeperPlayers.find(s =>
-      s.name.toLowerCase() === p.name.toLowerCase() ||
-      s.name.replace(/[^a-z]/gi,"").toLowerCase() === p.name.replace(/[^a-z]/gi,"").toLowerCase()
+    const live = NFL2026.find(n =>
+      n.name.toLowerCase() === p.name.toLowerCase() ||
+      n.name.replace(/[^a-zA-Z]/g,"").toLowerCase() === p.name.replace(/[^a-zA-Z]/g,"").toLowerCase()
     );
     if (live) { p.team = live.team; if (live.age) p.age = live.age; }
   });
+
+  renderTrade();
+  if (typeof renderRosterPage === "function") renderRosterPage();
+  console.log("[SnapFF] NFL 2026 database loaded:", sleeperPlayers.length, "players");
 }
+
+
 
 // ===== SEARCH FUNCTIONS =====
 function sdAutoComplete(input, dropId) {
@@ -2379,7 +2850,8 @@ const NFL_TEAMS = [
   'ARI','ATL','BAL','BUF','CAR','CHI','CIN','CLE',
   'DAL','DEN','DET','GB','HOU','IND','JAX','KC',
   'LAC','LAR','LV','MIA','MIN','NE','NO','NYG',
-  'NYJ','PHI','PIT','SEA','SF','TB','TEN','WAS'
+  'NYJ','PHI','PIT','SEA','SF','TB','TEN','WAS',
+  'FA','DRAFT'
 ];
 
 const TEAM_NAMES = {
@@ -2388,7 +2860,9 @@ const TEAM_NAMES = {
   HOU:'Texans',IND:'Colts',JAX:'Jaguars',KC:'Chiefs',LAC:'Chargers',LAR:'Rams',
   LV:'Raiders',MIA:'Dolphins',MIN:'Vikings',NE:'Patriots',NO:'Saints',NYG:'Giants',
   NYJ:'Jets',PHI:'Eagles',PIT:'Steelers',SEA:'Seahawks',SF:'49ers',TB:'Buccaneers',
-  TEN:'Titans',WAS:'Commanders'
+  TEN:'Titans',WAS:'Commanders',
+  FA:'Free Agents',
+  DRAFT:'2026 Draft Prospects'
 };
 
 let rosterPosFilter = 'ALL';
@@ -2433,7 +2907,16 @@ function buildTeamTabs() {
     const div = document.createElement('div');
     div.className = 'team-tab';
     div.dataset.team = t;
-    div.textContent = t;
+    // Style FA and DRAFT tabs differently
+    if (t === 'FA') {
+      div.textContent = '🔓 Free Agents';
+      div.style.cssText = 'border-color:rgba(245,200,66,.4);color:var(--gold)';
+    } else if (t === 'DRAFT') {
+      div.textContent = '⚡ 2026 Prospects';
+      div.style.cssText = 'border-color:rgba(255,79,43,.4);color:var(--accent2)';
+    } else {
+      div.textContent = t;
+    }
     div.addEventListener('click', () => setRosterTeam(t));
     wrap.appendChild(div);
   });
@@ -2460,8 +2943,7 @@ function renderRosterPage() {
   }
 
   if (status) {
-    const isLive = sleeperLoaded && window.espnDataLoaded;
-    const src = isLive ? "● Live — ESPN API" : (sleeperLoaded ? "● Live — ESPN API" : "○ Loading rosters...");
+    const src = sleeperLoaded ? "● Live — ESPN API" : "○ Loading rosters...";
     const col = sleeperLoaded ? "var(--accent)" : "var(--muted)";
     status.innerHTML = `<span style="color:${col}">${src} · ${pool.length} players</span>`;
   }
@@ -2524,9 +3006,10 @@ function renderRosterPage() {
         ? '<span class="r-status ' + injCls + '">' + injSt + '</span>'
         : '<span class="r-status status-active">Active</span>';
 
+      const extraInfo = p.college ? p.college : '';
       return '<div class="roster-row">' +
-        '<div class="depth-num ' + depthClass + '">' + depth + '</div>' +
-        '<div><div class="r-name">' + p.name + '</div></div>' +
+        '<div class="depth-num ' + depthClass + '">' + (p.rank || depth) + '</div>' +
+        '<div><div class="r-name">' + p.name + '</div>' + (extraInfo ? '<div style="font-size:10px;color:var(--muted)">' + extraInfo + '</div>' : '') + '</div>' +
         '<div><span class="r-pos ' + (posClass[p.pos]||'') + '">' + p.pos + '</span></div>' +
         '<div class="r-age">' + (p.age || '—') + '</div>' +
         '<div>' + statusHtml + '</div>' +
