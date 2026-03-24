@@ -1,84 +1,3208 @@
-// Netlify serverless function — proxies ESPN NFL API
-// Bypasses CORS so the browser can fetch live roster data
-// Deploy path: netlify/functions/roster.js
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SnapFFDecision — Fantasy Football</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:ital,wght@0,300;0,400;0,500;0,600;0,700;1,700&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#0D0F0E;--surface:#151918;--surface2:#1C2120;--border:#252C2A;--text:#EDF2EF;--muted:#6B7876;--accent:#1E90FF;--accent-dim:#1E90FF22;--accent2:#FF4F2B;--gold:#F5C842;--radius:10px; }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Barlow',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+  body::before{content:'';position:fixed;inset:0;z-index:0;background-image:linear-gradient(rgba(30,144,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(30,144,255,.03) 1px,transparent 1px);background-size:40px 40px;pointer-events:none}
+  nav{position:sticky;top:0;z-index:100;background:rgba(13,15,14,.97);backdrop-filter:blur(16px);border-bottom:1px solid var(--border);padding:0 16px;display:flex;flex-direction:column;align-items:stretch}
+  .nav-top{display:flex;align-items:center;justify-content:space-between;height:52px;width:100%}
+  .logo-wrap{display:flex;align-items:center;gap:8px;cursor:pointer;flex-shrink:0}
+  .logo-svg{width:30px;height:30px}
+  .logo-snap{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;color:var(--text)}
+  .logo-snap span{color:var(--accent)}
+  .logo-sub{font-size:8px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-top:1px}
+  .nav-links{display:flex;gap:2px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:8px;width:100%}
+  .nav-links::-webkit-scrollbar{display:none}
+  .nav-links button{background:none;border:none;cursor:pointer;padding:6px 12px;border-radius:7px;font-family:'Barlow',sans-serif;font-size:12px;font-weight:600;color:var(--muted);transition:all .15s;white-space:nowrap;flex-shrink:0}
+  .nav-links button:hover{background:var(--surface2);color:var(--text)}
+  .nav-links button.active{background:var(--accent);color:#000}
+  .nav-right{display:flex;align-items:center;gap:8px;flex-shrink:0}
+  .nav-badge{background:var(--accent2);color:white;font-size:10px;font-weight:700;padding:3px 8px;border-radius:20px;white-space:nowrap}
+  .nav-live{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:var(--accent)}
+  @media(max-width:480px){.nav-badge{display:none}.logo-sub{display:none}}
 
-const TEAM_IDS = {
-  ARI:22, ATL:1,  BAL:33, BUF:2,  CAR:29, CHI:3,  CIN:4,  CLE:5,
-  DAL:6,  DEN:7,  DET:8,  GB:9,   HOU:34, IND:11, JAX:30, KC:12,
-  LAC:24, LAR:14, LV:13,  MIA:15, MIN:16, NE:17,  NO:18,  NYG:19,
-  NYJ:20, PHI:21, PIT:23, SEA:26, SF:25,  TB:27,  TEN:10, WAS:28
-};
-
-exports.handler = async (event) => {
-  const headers = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Content-Type': 'application/json'
-  };
-
-  // Handle CORS preflight
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 200, headers, body: '' };
+  /* NFL ROSTERS PAGE */
+  .team-tab{padding:5px 11px;border-radius:6px;border:1px solid var(--border);background:var(--surface);cursor:pointer;font-size:11px;font-weight:700;color:var(--muted);transition:all .15s;white-space:nowrap}
+  .team-tab:hover{border-color:var(--accent);color:var(--accent)}
+  .team-tab.active{background:var(--accent);color:#000;border-color:var(--accent)}
+  .team-tab.all-tab{background:var(--text);color:var(--bg);border-color:var(--text)}
+  .roster-table{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:16px}
+  .roster-team-header{padding:12px 18px;background:var(--surface2);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+  .roster-team-name{font-family:"Bebas Neue",sans-serif;font-size:20px;letter-spacing:1px}
+  .roster-team-count{font-size:11px;color:var(--muted);font-weight:600}
+  .roster-row{display:grid;grid-template-columns:36px 1fr 60px 50px 80px 80px;padding:10px 18px;border-bottom:1px solid var(--border);align-items:center;transition:background .1s}
+  .roster-row:last-child{border-bottom:none}
+  .roster-row:hover{background:var(--surface2)}
+  .roster-hdr{display:grid;grid-template-columns:36px 1fr 60px 50px 80px 80px;padding:8px 18px;background:var(--surface2);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);border-bottom:1px solid var(--border)}
+  .depth-num{font-family:"Bebas Neue",sans-serif;font-size:18px;color:var(--border)}
+  .depth-num.d1{color:var(--accent)}
+  .depth-num.d2{color:var(--muted)}
+  .r-name{font-weight:700;font-size:13px}
+  .r-pos{font-size:9px;font-weight:800;letter-spacing:.1em;padding:2px 7px;border-radius:4px;text-transform:uppercase}
+  .r-age{font-size:13px;color:var(--muted);font-weight:500}
+  .r-status{font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px}
+  .r-val{font-family:"Bebas Neue",sans-serif;font-size:18px;color:var(--accent)}
+  .r-val.low{color:var(--muted)}
+  .status-active{background:rgba(30,144,255,.1);color:var(--accent)}
+  .status-q{background:rgba(245,200,66,.12);color:var(--gold)}
+  .status-d{background:rgba(255,79,43,.12);color:var(--accent2)}
+  .status-out{background:rgba(255,79,43,.15);color:var(--accent2)}
+  .status-ir{background:rgba(255,79,43,.15);color:var(--accent2)}
+  @media(max-width:600px){
+    .roster-row,.roster-hdr{grid-template-columns:30px 1fr 50px 40px 70px}
+    .roster-row>:last-child,.roster-hdr>:last-child{display:none}
   }
 
-  const team = (event.queryStringParameters && event.queryStringParameters.team || '').toUpperCase();
+  /* MOCK DRAFT */
+  .md-setup{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:28px;max-width:680px;margin:0 auto}
+  .md-setup h2{font-family:"Bebas Neue",sans-serif;font-size:28px;letter-spacing:1.5px;margin-bottom:6px}
+  .md-setup p{color:var(--muted);font-size:13px;margin-bottom:24px}
+  .md-option-group{margin-bottom:20px}
+  .md-option-group label{display:block;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin-bottom:8px}
+  .md-seg{display:flex;gap:6px;flex-wrap:wrap}
+  .md-seg-btn{padding:8px 18px;border-radius:7px;border:1px solid var(--border);background:none;font-family:"Barlow",sans-serif;font-size:13px;font-weight:700;color:var(--muted);cursor:pointer;transition:all .15s}
+  .md-seg-btn:hover{border-color:var(--accent);color:var(--accent)}
+  .md-seg-btn.active{background:var(--accent);color:#000;border-color:var(--accent)}
+  .md-slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-top:8px}
+  .md-slot{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;display:flex;align-items:center;gap:8px;cursor:pointer;transition:all .15s}
+  .md-slot:hover{border-color:var(--accent)}
+  .md-slot.human{border-color:var(--accent);background:var(--accent-dim)}
+  .md-slot-icon{width:28px;height:28px;border-radius:50%;background:var(--border);display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}
+  .md-slot.human .md-slot-icon{background:var(--accent);color:#000}
+  .md-slot-label{font-size:12px;font-weight:700;line-height:1.2}
+  .md-slot-sub{font-size:10px;color:var(--muted)}
+  .md-start-btn{width:100%;margin-top:24px;padding:16px;background:var(--accent);color:#000;border:none;border-radius:10px;font-family:"Bebas Neue",sans-serif;font-size:24px;letter-spacing:2px;cursor:pointer;transition:opacity .15s}
+  .md-start-btn:hover{opacity:.85}
 
-  try {
-    const OFF_POSITIONS = new Set(['QB','RB','WR','TE']);
-    let players = [];
+  /* DRAFT BOARD */
+  .md-board{display:none}
+  .md-board.active{display:block}
+  .md-header{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .md-round-badge{font-family:"Bebas Neue",sans-serif;font-size:22px;letter-spacing:1px;color:var(--accent)}
+  .md-pick-info{flex:1}
+  .md-pick-info .who{font-weight:700;font-size:14px}
+  .md-pick-info .sub{font-size:12px;color:var(--muted)}
+  .md-timer{font-family:"Bebas Neue",sans-serif;font-size:36px;letter-spacing:1px;color:var(--text);min-width:52px;text-align:center}
+  .md-timer.urgent{color:var(--accent2)}
+  .md-skip-btn{padding:8px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;font-family:"Barlow",sans-serif;font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;transition:all .15s}
+  .md-skip-btn:hover{border-color:var(--accent2);color:var(--accent2)}
 
-    if (team && TEAM_IDS[team]) {
-      // Fetch single team
-      players = await fetchTeamRoster(team, TEAM_IDS[team], OFF_POSITIONS);
-    } else {
-      // Fetch all 32 teams in parallel
-      const fetches = Object.entries(TEAM_IDS).map(([abbr, id]) =>
-        fetchTeamRoster(abbr, id, OFF_POSITIONS)
-      );
-      const results = await Promise.all(fetches);
-      players = results.flat();
-    }
+  .md-main{display:grid;grid-template-columns:1fr 280px;gap:16px}
+  @media(max-width:700px){.md-main{grid-template-columns:1fr}}
 
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({ players, updated: new Date().toISOString() })
-    };
+  .md-player-pool{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+  .md-pool-header{padding:12px 16px;background:var(--surface2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+  .md-pool-search{flex:1;padding:7px 12px;background:var(--bg);border:1px solid var(--border);border-radius:7px;font-family:"Barlow",sans-serif;font-size:12px;color:var(--text);outline:none}
+  .md-pool-search:focus{border-color:var(--accent)}
+  .md-pool-search::placeholder{color:var(--muted)}
+  .md-pos-filter{display:flex;gap:4px}
+  .md-pos-btn{padding:4px 10px;border-radius:5px;border:1px solid var(--border);background:none;font-family:"Barlow",sans-serif;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;transition:all .15s}
+  .md-pos-btn.active{background:var(--accent);color:#000;border-color:var(--accent)}
+  .md-pool-list{height:420px;overflow-y:auto}
+  .md-pool-row{display:flex;align-items:center;padding:9px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s;gap:10px}
+  .md-pool-row:hover{background:var(--surface2)}
+  .md-pool-row.drafted{opacity:.3;pointer-events:none;text-decoration:line-through}
+  .md-pool-row .pr-name{font-weight:700;font-size:13px;flex:1}
+  .md-pool-row .pr-meta{font-size:11px;color:var(--muted)}
+  .md-pool-row .pr-val{font-family:"Bebas Neue",sans-serif;font-size:18px;color:var(--accent);min-width:30px;text-align:right}
+  .md-draft-btn{padding:5px 12px;background:var(--accent);color:#000;border:none;border-radius:6px;font-family:"Barlow",sans-serif;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap}
+  .md-draft-btn:disabled{background:var(--border);color:var(--muted);cursor:not-allowed}
 
-  } catch (err) {
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: err.message })
-    };
+  .md-sidebar{display:flex;flex-direction:column;gap:12px}
+  .md-picks-panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;flex:1}
+  .md-picks-header{padding:10px 14px;background:var(--surface2);border-bottom:1px solid var(--border);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
+  .md-picks-list{height:200px;overflow-y:auto;padding:8px 0}
+  .md-pick-entry{display:flex;align-items:center;gap:8px;padding:6px 14px;border-bottom:1px solid var(--border)}
+  .md-pick-entry:last-child{border-bottom:none}
+  .md-pick-num{font-family:"Bebas Neue",sans-serif;font-size:16px;color:var(--muted);min-width:28px}
+  .md-pick-name{font-size:12px;font-weight:700;flex:1}
+  .md-pick-team{font-size:10px;color:var(--muted)}
+
+  .md-rosters-panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+  .md-rosters-header{padding:10px 14px;background:var(--surface2);border-bottom:1px solid var(--border);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);display:flex;gap:6px}
+  .md-roster-tab{padding:3px 8px;border-radius:4px;cursor:pointer;font-size:10px;font-weight:700;color:var(--muted);transition:all .15s}
+  .md-roster-tab.active{background:var(--accent);color:#000}
+  .md-roster-list{padding:8px 0;max-height:240px;overflow-y:auto}
+  .md-roster-entry{display:flex;align-items:center;gap:8px;padding:5px 14px}
+  .md-roster-round{font-size:9px;font-weight:800;color:var(--muted);min-width:18px}
+  .md-roster-name{font-size:12px;font-weight:600;flex:1}
+
+  .md-complete{display:none;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:32px;text-align:center}
+  .md-complete.show{display:block;animation:fadeIn .3s ease}
+  .md-complete h2{font-family:"Bebas Neue",sans-serif;font-size:32px;letter-spacing:1.5px;color:var(--accent);margin-bottom:16px}
+  .md-team-result{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px;text-align:left}
+  .md-team-result h4{font-family:"Bebas Neue",sans-serif;font-size:18px;letter-spacing:1px;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+  .md-result-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px}
+  .md-result-pick{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:12px}
+  .md-result-pick .rpn{font-weight:700}
+  .md-result-pick .rpm{font-size:10px;color:var(--muted)}
+  /* ARTICLES */
+  .art-label{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin-bottom:6px}
+  .art-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:22px 24px;margin-bottom:16px;transition:border-color .15s;cursor:pointer}
+  .art-card:hover{border-color:var(--accent)}
+  .art-card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
+  .art-badge{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:3px 9px;border-radius:4px;background:rgba(30,144,255,.12);color:var(--accent);white-space:nowrap}
+  .art-badge.wb-Waiver{background:rgba(0,212,106,.1);color:#00D46A}
+  .art-badge.wb-Dynasty{background:rgba(245,200,66,.1);color:var(--gold)}
+  .art-badge.wb-Trade{background:rgba(123,143,255,.12);color:#7B8FFF}
+  .art-badge.wb-Rookie{background:rgba(255,79,43,.1);color:var(--accent2)}
+  .art-edit-btn{font-size:11px;color:var(--muted);background:none;border:none;cursor:pointer;padding:4px 8px;border-radius:5px;transition:all .15s;white-space:nowrap}
+  .art-edit-btn:hover{background:var(--surface2);color:var(--accent)}
+  .art-headline{font-family:"Bebas Neue",sans-serif;font-size:22px;letter-spacing:1px;line-height:1.2;margin-bottom:8px}
+  .art-meta{font-size:11px;color:var(--muted);font-weight:600;display:flex;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+  .art-body-preview{font-size:13px;line-height:1.7;color:var(--text)}
+  .art-body-full{display:none;font-size:13px;line-height:1.7;color:var(--text);margin-top:10px;white-space:pre-wrap}
+  .art-read-more{font-size:12px;color:var(--accent);font-weight:600;margin-top:10px;cursor:pointer}
+
+    .md-restart-btn{margin-top:20px;padding:12px 28px;background:var(--accent);color:#000;border:none;border-radius:8px;font-family:"Bebas Neue",sans-serif;font-size:20px;letter-spacing:1.5px;cursor:pointer;margin-right:10px}
+  .md-exit-btn{margin-top:20px;padding:12px 28px;background:none;color:var(--muted);border:1px solid var(--border);border-radius:8px;font-family:"Bebas Neue",sans-serif;font-size:20px;letter-spacing:1.5px;cursor:pointer;transition:all .15s}
+  .md-exit-btn:hover{border-color:var(--accent2);color:var(--accent2)}
+  .md-board-exit{position:absolute;top:0;right:0;padding:6px 14px;background:none;border:none;color:var(--muted);font-family:"Barlow",sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:color .15s}
+  .md-board-exit:hover{color:var(--accent2)}
+  .md-adp-panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-top:20px;text-align:left}
+  .md-adp-panel h3{font-family:"Bebas Neue",sans-serif;font-size:20px;letter-spacing:1px;margin-bottom:4px}
+  .md-adp-panel p{font-size:12px;color:var(--muted);margin-bottom:14px}
+  .md-adp-table{width:100%;border-collapse:collapse}
+  .md-adp-table th{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border);text-align:left}
+  .md-adp-table td{padding:8px 10px;border-bottom:1px solid var(--border);font-size:13px}
+  .md-adp-table tr:last-child td{border-bottom:none}
+  .md-adp-table tr:hover td{background:var(--surface2)}
+  .adp-val{font-family:"Bebas Neue",sans-serif;font-size:18px;color:var(--accent)}
+  .adp-drafts{font-size:11px;color:var(--muted)}
+  .md-complete-tabs{display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:0}
+  .md-complete-tab{padding:7px 16px;background:none;border:none;font-family:"Barlow",sans-serif;font-size:13px;font-weight:700;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s}
+  .md-complete-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+  .live-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:pulse 1.5s infinite}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(1.3)}}
+  .main{max-width:1200px;margin:0 auto;padding:28px 24px;position:relative;z-index:1}
+  .page{display:none;animation:fadeIn .2s ease}
+  .page.active{display:block}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+  .hero{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:36px 40px;display:flex;align-items:center;justify-content:space-between;margin-bottom:28px;position:relative;overflow:hidden}
+  .hero::before{content:'';position:absolute;top:-60px;right:-60px;width:300px;height:300px;border-radius:50%;background:radial-gradient(circle,rgba(30,144,255,.08),transparent 70%);pointer-events:none}
+  .hero h1{font-family:'Bebas Neue',sans-serif;font-size:48px;letter-spacing:2px;line-height:1}
+  .hero h1 span{color:var(--accent)}
+  .hero p{color:var(--muted);font-size:14px;margin-top:8px;font-weight:500}
+  .hero-cta{margin-top:20px;display:flex;gap:10px}
+  .btn-primary{padding:10px 22px;background:var(--accent);color:#000;border:none;border-radius:8px;cursor:pointer;font-family:'Barlow',sans-serif;font-size:13px;font-weight:700;transition:opacity .15s}
+  .btn-primary:hover{opacity:.85}
+  .btn-ghost{padding:10px 22px;background:none;color:var(--text);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-family:'Barlow',sans-serif;font-size:13px;font-weight:600;transition:border-color .15s}
+  .btn-ghost:hover{border-color:var(--accent);color:var(--accent)}
+  .hero-stats{display:flex;gap:32px;flex-shrink:0;position:relative;z-index:1}
+  .hero-stat .val{font-family:'Bebas Neue',sans-serif;font-size:42px;color:var(--accent);letter-spacing:1px}
+  .hero-stat .lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
+  .section-header{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:16px}
+  .section-title{font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:1.5px}
+  .section-link{font-size:12px;color:var(--accent);cursor:pointer;font-weight:600}
+  .tabs{display:flex;gap:4px;margin-bottom:20px;border-bottom:1px solid var(--border)}
+  .tab-btn{background:none;border:none;cursor:pointer;padding:8px 18px;font-family:'Barlow',sans-serif;font-size:13px;font-weight:700;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s}
+  .tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
+  .cards-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(195px,1fr));gap:14px}
+  .player-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;cursor:pointer;transition:all .18s;position:relative;overflow:hidden}
+  .player-card::after{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(30,144,255,.04),transparent 60%);opacity:0;transition:opacity .18s;pointer-events:none}
+  .player-card:hover{border-color:var(--accent);transform:translateY(-3px);box-shadow:0 8px 24px rgba(30,144,255,.12)}
+  .player-card:hover::after{opacity:1}
+  .card-pos{display:inline-block;font-size:9px;font-weight:800;letter-spacing:.12em;padding:3px 8px;border-radius:4px;margin-bottom:12px;text-transform:uppercase}
+  .pos-qb{background:rgba(245,200,66,.15);color:var(--gold)}
+  .pos-rb{background:rgba(30,144,255,.12);color:var(--accent)}
+  .pos-wr{background:rgba(100,120,255,.15);color:#7B8FFF}
+  .pos-te{background:rgba(255,79,43,.12);color:var(--accent2)}
+  .pos-lb{background:rgba(245,200,66,.12);color:var(--gold)}
+  .pos-dl{background:rgba(255,79,43,.12);color:var(--accent2)}
+  .pos-db{background:rgba(100,120,255,.15);color:#7B8FFF}
+  .card-rank{position:absolute;top:14px;right:14px;font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--border)}
+  .card-name{font-weight:700;font-size:14px;margin-bottom:2px;line-height:1.3}
+  .card-team{font-size:11px;color:var(--muted);margin-bottom:14px;font-weight:500}
+  .card-stats{display:flex;justify-content:space-between}
+  .card-stat .v{font-family:'Bebas Neue',sans-serif;font-size:22px}
+  .card-stat .l{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-weight:700}
+  .card-trend{position:absolute;bottom:14px;right:14px;font-size:11px;font-weight:700}
+  .trend-up{color:var(--accent)} .trend-dn{color:var(--accent2)}
+  .rankings-table{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+  .rt-header{padding:10px 20px;background:var(--surface2);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);border-bottom:1px solid var(--border);display:grid}
+  .rt-row{padding:13px 20px;border-bottom:1px solid var(--border);align-items:center;transition:background .12s;cursor:pointer;display:grid}
+  .rt-row:last-child{border-bottom:none}
+  .rt-row:hover{background:var(--surface2)}
+  .rt-std{grid-template-columns:52px 1fr 80px 80px 80px 80px}
+  .rt-rook{grid-template-columns:60px 1fr 60px 1fr 120px 80px}
+  .rt-idp{grid-template-columns:52px 1fr 60px 70px 70px 70px 70px}
+  .rt-rank{font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--muted)}
+  .rt-name{font-weight:700;font-size:14px}
+  .rt-info{font-size:11px;color:var(--muted);display:flex;gap:8px;align-items:center;margin-top:2px}
+  .rt-val{font-weight:600;font-size:13px}
+  .rt-change{font-size:12px;font-weight:700}
+  .filter-row{display:flex;gap:8px;margin-bottom:18px;align-items:center;flex-wrap:wrap}
+  .filter-pill{padding:6px 14px;border-radius:20px;border:1px solid var(--border);background:var(--surface);cursor:pointer;font-size:12px;font-weight:700;color:var(--muted);transition:all .15s}
+  .filter-pill.active,.filter-pill:hover{background:var(--accent);color:#000;border-color:var(--accent)}
+  .search-box{margin-left:auto;padding:7px 14px;border:1px solid var(--border);border-radius:8px;font-family:'Barlow',sans-serif;font-size:12px;background:var(--surface2);outline:none;color:var(--text);transition:border-color .15s;width:180px}
+  .search-box:focus{border-color:var(--accent)}
+  .search-box::placeholder{color:var(--muted)}
+  .trade-grid{display:grid;grid-template-columns:1fr 60px 1fr;gap:16px;align-items:start}
+  .trade-panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px}
+  .trade-side-label{font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin-bottom:12px;font-weight:800}
+  .trade-player-item{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--surface2);border-radius:8px;margin-bottom:8px;cursor:pointer;border:1px solid transparent;transition:all .15s}
+  .trade-player-item:hover{border-color:var(--accent2);background:rgba(255,79,43,.05)}
+  .trade-player-item .tname{font-weight:700;font-size:13px}
+  .trade-player-item .thint{font-size:10px;color:var(--muted);margin-top:2px}
+  .trade-player-item .tval{font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--accent)}
+  .trade-add-btn{width:100%;padding:10px;background:none;border:1px dashed var(--border);border-radius:8px;cursor:pointer;font-family:'Barlow',sans-serif;color:var(--muted);font-size:13px;font-weight:600;transition:all .15s;margin-top:4px}
+  .trade-add-btn:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
+  .trade-result{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:28px;margin-top:20px}
+  .trade-bar-track{height:8px;background:var(--surface2);border-radius:4px;overflow:hidden;margin-top:20px}
+
+  /* TRADE CALCULATOR SETTINGS */
+  .tc-settings{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:22px 24px;margin-bottom:20px}
+  .tc-settings-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin-bottom:16px}
+  .tc-toggles{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:640px){.tc-toggles{grid-template-columns:1fr}}
+  .tc-toggle-group{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+  .tc-toggle-label{display:flex;flex-direction:column;gap:3px}
+  .tc-toggle-name{font-weight:700;font-size:13px;color:var(--text)}
+  .tc-toggle-desc{font-size:11px;color:var(--muted);line-height:1.4}
+  .tc-seg{display:flex;gap:4px;flex-wrap:wrap}
+  .tc-seg-btn{padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:none;font-family:"Barlow",sans-serif;font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;transition:all .15s}
+  .tc-seg-btn:hover{border-color:var(--accent);color:var(--accent)}
+  .tc-seg-btn.active{background:var(--accent);color:#000;border-color:var(--accent)}
+  .tc-settings-note{margin-top:14px;font-size:12px;font-weight:600;color:var(--accent);padding:8px 14px;background:var(--accent-dim);border-radius:8px;border:1px solid rgba(30,144,255,.2)}
+  .tc-search-wrap{position:relative;margin-top:12px}
+  .tc-search{width:100%;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;font-family:"Barlow",sans-serif;font-size:13px;color:var(--text);outline:none;transition:border-color .15s}
+  .tc-search:focus{border-color:var(--accent)}
+  .tc-search::placeholder{color:var(--muted)}
+  .tc-suggestions{position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--surface2);border:1px solid var(--border);border-radius:8px;z-index:50;overflow:hidden;display:none;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+  .tc-suggestions.show{display:block}
+  .tc-sug-item{padding:10px 14px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;transition:background .12s;border-bottom:1px solid var(--border)}
+  .tc-sug-item:last-child{border-bottom:none}
+  .tc-sug-item:hover{background:var(--surface)}
+  .tc-sug-name{font-weight:700;font-size:13px}
+  .tc-sug-info{font-size:11px;color:var(--muted);margin-top:2px}
+  .tc-sug-val{font-family:"Bebas Neue",sans-serif;font-size:20px;color:var(--accent)}
+  .tc-tag{display:inline-block;font-size:9px;font-weight:800;letter-spacing:.1em;padding:2px 6px;border-radius:4px;margin-left:6px;text-transform:uppercase}
+  .tc-tag-up{background:rgba(30,144,255,.15);color:var(--accent)}
+  .tc-tag-dn{background:rgba(255,79,43,.15);color:var(--accent2)}
+  .trade-bar-fill{height:100%;background:linear-gradient(90deg,var(--accent2),var(--accent));border-radius:4px;transition:width .6s ease}
+  .news-grid{display:grid;grid-template-columns:1fr 300px;gap:20px}
+  .news-item{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;margin-bottom:10px;cursor:pointer;transition:all .15s;border-left:3px solid transparent}
+  .news-item:hover{border-left-color:var(--accent);background:var(--surface2)}
+  .news-tag{display:inline-block;font-size:9px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;padding:3px 8px;border-radius:4px;margin-bottom:8px}
+  .tag-injury{background:rgba(255,79,43,.15);color:var(--accent2)}
+  .tag-trade{background:rgba(30,144,255,.12);color:var(--accent)}
+  .tag-news{background:rgba(123,143,255,.15);color:#7B8FFF}
+  .tag-rumor{background:rgba(245,200,66,.12);color:var(--gold)}
+  .tag-fa{background:rgba(30,144,255,.12);color:var(--accent)}
+  .news-headline{font-weight:600;font-size:14px;line-height:1.45;margin-bottom:8px}
+  .news-meta{font-size:11px;color:var(--muted);display:flex;gap:14px;font-weight:500}
+  .sidebar-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:14px}
+  .sidebar-card h4{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1px;margin-bottom:14px}
+  .trending-item{display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border)}
+  .trending-item:last-child{border-bottom:none}
+  .t-rank{font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--border);min-width:24px}
+  .t-name{font-weight:700;font-size:13px}
+  .t-note{font-size:11px;font-weight:500}
+  .chat-layout{display:grid;grid-template-columns:210px 1fr;gap:16px}
+  .chat-channels{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
+  .chat-ch-title{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);margin-bottom:10px}
+  .channel-item{padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13px;font-weight:600;margin-bottom:2px;display:flex;align-items:center;gap:8px;transition:background .12s;color:var(--muted)}
+  .channel-item:hover{background:var(--surface2);color:var(--text)}
+  .channel-item.active{background:var(--accent-dim);color:var(--accent);border:1px solid rgba(30,144,255,.2)}
+  .ch-badge{margin-left:auto;background:var(--accent2);color:white;font-size:9px;font-weight:800;border-radius:10px;padding:2px 6px}
+  .chat-main{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);display:flex;flex-direction:column;height:520px}
+  .chat-header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+  .chat-header h3{font-weight:700;font-size:14px}
+  .chat-header p{font-size:12px;color:var(--muted);margin-left:auto}
+  .chat-messages{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:14px}
+  .chat-msg{display:flex;gap:10px}
+  .chat-avatar{width:32px;height:32px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0}
+  .chat-self .chat-avatar{background:var(--accent);color:#000;border-color:var(--accent)}
+  .chat-author{font-weight:700;font-size:12px;margin-bottom:4px;display:flex;gap:8px;align-items:baseline}
+  .chat-time{font-weight:400;color:var(--muted);font-size:11px}
+  .chat-bubble{font-size:13px;line-height:1.5;background:var(--surface2);padding:8px 12px;border-radius:2px 10px 10px 10px;display:inline-block;border:1px solid var(--border)}
+  .chat-self .chat-bubble{background:var(--accent-dim);border-color:rgba(30,144,255,.2)}
+  .chat-input-row{padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:10px}
+  .chat-input{flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:8px;font-family:'Barlow',sans-serif;font-size:13px;background:var(--surface2);outline:none;color:var(--text);transition:border-color .15s}
+  .chat-input:focus{border-color:var(--accent)}
+  .chat-input::placeholder{color:var(--muted)}
+  .chat-send{padding:10px 18px;background:var(--accent);color:#000;border:none;border-radius:8px;cursor:pointer;font-family:'Barlow',sans-serif;font-size:13px;font-weight:800}
+  ::-webkit-scrollbar{width:4px} ::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+  @keyframes snapPulse{0%,100%{box-shadow:0 0 0 0 rgba(30,144,255,.4)}50%{box-shadow:0 0 0 6px rgba(30,144,255,0)}}
+
+  /* SNAP DECISION ENGINE */
+  .sd-hero{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:32px 40px;margin-bottom:24px;position:relative;overflow:hidden}
+  .sd-hero::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at top right,rgba(30,144,255,.07),transparent 60%);pointer-events:none}
+  .sd-hero h1{font-family:'Bebas Neue',sans-serif;font-size:38px;letter-spacing:2px}
+  .sd-hero h1 span{color:var(--accent)}
+  .sd-hero p{color:var(--muted);font-size:14px;margin-top:6px;max-width:560px;line-height:1.6}
+  .sd-mode-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:24px}
+  .sd-mode-card{background:var(--surface);border:2px solid var(--border);border-radius:12px;padding:22px 20px;cursor:pointer;transition:all .18s;text-align:center}
+  .sd-mode-card:hover,.sd-mode-card.selected{border-color:var(--accent);background:rgba(30,144,255,.05)}
+  .sd-mode-card .icon{font-size:32px;margin-bottom:10px}
+  .sd-mode-card .mode-title{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1px;margin-bottom:4px}
+  .sd-mode-card .mode-desc{font-size:12px;color:var(--muted);line-height:1.5}
+  .sd-form{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:28px;margin-bottom:20px}
+  .sd-form h3{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1px;margin-bottom:20px;color:var(--accent)}
+  .sd-fields{display:grid;gap:14px}
+  .sd-field label{display:block;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin-bottom:6px}
+  .sd-input,.sd-select{width:100%;padding:11px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;font-family:'Barlow',sans-serif;font-size:13px;color:var(--text);outline:none;transition:border-color .15s}
+  .sd-input:focus,.sd-select:focus{border-color:var(--accent)}
+  .sd-input::placeholder{color:var(--muted)}
+  .sd-select option{background:var(--surface2)}
+  .sd-row2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .sd-row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+  .sd-factors{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+  .sd-factor{padding:6px 14px;border-radius:20px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:12px;font-weight:700;color:var(--muted);transition:all .15s;user-select:none}
+  .sd-factor.on{background:var(--accent);color:#000;border-color:var(--accent)}
+  .sd-submit{margin-top:22px;width:100%;padding:14px;background:var(--accent);color:#000;border:none;border-radius:10px;font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:10px}
+  .sd-submit:hover{opacity:.88;transform:translateY(-1px)}
+  .sd-submit:disabled{opacity:.4;cursor:not-allowed;transform:none}
+  .sd-result{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:28px;display:none}
+  .sd-result.show{display:block;animation:fadeIn .3s ease}
+  .sd-verdict-bar{display:flex;align-items:center;gap:20px;padding:20px 24px;background:var(--surface2);border-radius:10px;margin-bottom:20px;border:1px solid var(--border)}
+  .sd-verdict-icon{font-size:44px;flex-shrink:0}
+  .sd-verdict-label{font-family:'Bebas Neue',sans-serif;font-size:36px;letter-spacing:2px}
+  .sd-verdict-sub{font-size:13px;color:var(--muted);margin-top:2px;font-weight:500}
+  .sd-confidence{margin-left:auto;text-align:right}
+  .sd-conf-val{font-family:'Bebas Neue',sans-serif;font-size:48px;letter-spacing:1px;color:var(--accent)}
+  .sd-conf-lbl{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);font-weight:700}
+  .sd-factors-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}
+  .sd-factor-card{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px}
+  .sd-factor-card .fc-label{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:6px}
+  .sd-factor-card .fc-val{font-weight:700;font-size:14px;display:flex;align-items:center;gap:6px}
+  .sd-factor-card .fc-bar{height:4px;background:var(--border);border-radius:2px;margin-top:8px;overflow:hidden}
+  .sd-factor-card .fc-fill{height:100%;border-radius:2px;transition:width .8s ease}
+  .sd-analysis{font-size:14px;line-height:1.75;color:var(--text)}
+  .sd-analysis strong{color:var(--accent)}
+  .sd-thinking{display:none;align-items:center;gap:14px;padding:24px;background:var(--surface2);border-radius:10px;border:1px solid var(--border);margin-top:20px}
+  .sd-thinking.show{display:flex}
+  .sd-spinner{width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .sd-thinking-text{font-size:13px;color:var(--muted)}
+  .sd-thinking-text strong{color:var(--text);display:block;margin-bottom:2px}
+  .sd-reset{margin-top:16px;padding:10px 20px;background:none;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-family:'Barlow',sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s}
+  .sd-reset:hover{border-color:var(--accent);color:var(--accent)}
+</style>
+</head>
+<body>
+<nav>
+  <div class="nav-top">
+    <div class="logo-wrap" onclick="showPage('home')">
+      <svg class="logo-svg" viewBox="0 0 36 36" fill="none">
+        <path d="M18 2L4 8V18C4 25.5 10.5 32 18 34C25.5 32 32 25.5 32 18V8L18 2Z" fill="#151918" stroke="#252C2A" stroke-width="1.5"/>
+        <ellipse cx="18" cy="18" rx="8" ry="5.5" transform="rotate(-30 18 18)" fill="none" stroke="#1E90FF" stroke-width="1.8"/>
+        <line x1="18" y1="14.5" x2="18" y2="21.5" stroke="#1E90FF" stroke-width="1.2"/>
+        <line x1="15.5" y1="16" x2="20.5" y2="16" stroke="#1E90FF" stroke-width="1"/>
+        <line x1="15.5" y1="18" x2="20.5" y2="18" stroke="#1E90FF" stroke-width="1"/>
+        <line x1="15.5" y1="20" x2="20.5" y2="20" stroke="#1E90FF" stroke-width="1"/>
+        <path d="M20 6L16 13H19.5L15.5 21L22 12.5H18.5L20 6Z" fill="#1E90FF" opacity=".85"/>
+      </svg>
+      <div>
+        <div class="logo-snap">Snap<span>FF</span>Decision</div>
+        <div class="logo-sub">Fantasy Football Intel · 2026</div>
+      </div>
+    </div>
+    <div class="nav-right">
+      <div class="nav-live"><div class="live-dot"></div> FREE AGENCY</div>
+      <span class="nav-badge">2026 OFFSEASON</span>
+    </div>
+  </div>
+  <div class="nav-links">
+    <button class="active" onclick="showPage('home')">Home</button>
+    <button onclick="showPage('rankings')">Rankings</button>
+    <button onclick="showPage('news')">News</button>
+    <button onclick="showPage('trade')">Trade Analyzer</button>
+    <button onclick="showPage('chat')">Chat Board</button>
+    <button onclick="showPage('snapdecision')" style="background:var(--accent);color:#000;animation:snapPulse 2.5s infinite">⚡ Snap Decision</button>
+    <button onclick="showPage('rosters')">🏈 NFL Rosters</button>
+    <button onclick="showPage('mockdraft')">📋 Mock Draft</button>
+  </div>
+</nav>
+
+<div class="main">
+  <!-- HOME -->
+  <div id="page-home" class="page active">
+    <div class="hero">
+      <div style="position:relative;z-index:1">
+        <h1>Make Your<br><span>Snap</span> Decision.</h1>
+        <p>2026 Redraft · Dynasty · IDP · Rookie Rankings · Live Free Agency News</p>
+        <div class="hero-cta">
+          <button class="btn-primary" onclick="showPage('rankings')">View Rankings</button>
+          <button class="btn-ghost" onclick="showPage('news')">Free Agency News</button>
+        </div>
+      </div>
+      <svg style="position:absolute;right:40px;top:50%;transform:translateY(-50%);opacity:.04" width="280" height="280" viewBox="0 0 36 36" fill="none">
+        <path d="M18 2L4 8V18C4 25.5 10.5 32 18 34C25.5 32 32 25.5 32 18V8L18 2Z" fill="#1E90FF"/>
+        <ellipse cx="18" cy="18" rx="8" ry="5.5" transform="rotate(-30 18 18)" fill="none" stroke="white" stroke-width="1.8"/>
+        <path d="M20 6L16 13H19.5L15.5 21L22 12.5H18.5L20 6Z" fill="white"/>
+      </svg>
+      <div class="hero-stats">
+        <div class="hero-stat"><div class="val">300+</div><div class="lbl">Players Ranked</div></div>
+        <div class="hero-stat"><div class="val">50+</div><div class="lbl">FA Moves</div></div>
+        <div class="hero-stat"><div class="val">Mar '26</div><div class="lbl">Updated</div></div>
+      </div>
+    </div>
+    <!-- ARTICLES SECTION -->
+    <div class="section-header" style="margin-top:4px">
+      <div class="section-title">Featured Articles</div>
+      <div id="art-admin-toggle" style="font-size:12px;color:var(--muted);cursor:pointer;font-weight:600" onclick="artToggleAdmin()">✏️ Write Article</div>
+    </div>
+
+    <!-- WRITE / EDIT FORM (hidden by default) -->
+    <div id="art-editor" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:20px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1px" id="art-editor-title">New Article</div>
+        <button onclick="artToggleAdmin()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">✕</button>
+      </div>
+      <div style="display:grid;gap:12px">
+        <div>
+          <div class="art-label">Headline</div>
+          <input id="art-headline" class="sd-input" placeholder="e.g. Top 5 Waiver Adds for Week 14" style="width:100%">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <div class="art-label">Author</div>
+            <input id="art-author" class="sd-input" placeholder="Your name or Guest Writer" style="width:100%">
+          </div>
+          <div>
+            <div class="art-label">Category</div>
+            <select id="art-category" class="sd-input" style="width:100%">
+              <option value="Analysis">Analysis</option>
+              <option value="Waiver Wire">Waiver Wire</option>
+              <option value="Start/Sit">Start/Sit</option>
+              <option value="Trade Talk">Trade Talk</option>
+              <option value="Dynasty">Dynasty</option>
+              <option value="Rookie Watch">Rookie Watch</option>
+              <option value="News">News</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <div class="art-label">Body</div>
+          <textarea id="art-body" class="sd-input" rows="8" placeholder="Write your article here..." style="width:100%;resize:vertical;line-height:1.6"></textarea>
+        </div>
+        <input type="hidden" id="art-editing-id" value="">
+      </div>
+      <div style="display:flex;gap:10px;margin-top:16px">
+        <button class="btn-primary" onclick="artSave()">PUBLISH</button>
+        <button class="btn-ghost" onclick="artToggleAdmin()">Cancel</button>
+        <button id="art-delete-btn" class="btn-ghost" style="display:none;border-color:var(--accent2);color:var(--accent2)" onclick="artDelete()">Delete</button>
+      </div>
+    </div>
+
+    <!-- ARTICLES FEED -->
+    <div id="art-feed"></div>
+    <div id="art-empty" style="display:none;padding:40px;text-align:center;color:var(--muted)">
+      <div style="font-size:32px;margin-bottom:10px">📝</div>
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1px">No Articles Yet</div>
+      <div style="font-size:13px;margin-top:6px">Click "Write Article" above to publish the first one.</div>
+    </div>
+
+  </div>
+
+  <!-- RANKINGS -->
+  <div id="page-rankings" class="page">
+    <div class="section-header"><div class="section-title">Player Rankings</div></div>
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab(this,'redraft')">Redraft 2026</button>
+      <button class="tab-btn" onclick="switchTab(this,'dynasty')">Dynasty</button>
+      <button class="tab-btn" onclick="switchTab(this,'rookie')">Rookies 2026</button>
+      <button class="tab-btn" onclick="switchTab(this,'idp')">IDP</button>
+    </div>
+    <div id="tab-redraft">
+      <div class="filter-row">
+        <div class="filter-pill active" onclick="filterPos(this,'ALL')">All</div>
+        <div class="filter-pill" onclick="filterPos(this,'QB')">QB</div>
+        <div class="filter-pill" onclick="filterPos(this,'RB')">RB</div>
+        <div class="filter-pill" onclick="filterPos(this,'WR')">WR</div>
+        <div class="filter-pill" onclick="filterPos(this,'TE')">TE</div>
+        <input class="search-box" placeholder="Search player..." oninput="searchPlayers(this.value)">
+      </div>
+      <div class="rankings-table">
+        <div class="rt-header rt-std"><div>Rank</div><div>Player</div><div>Proj Pts</div><div>ADP</div><div>Age</div><div>Trend</div></div>
+        <div id="rankings-body"></div>
+      </div>
+    </div>
+    <div id="tab-dynasty" style="display:none">
+      <div class="rankings-table">
+        <div class="rt-header rt-std"><div>Rank</div><div>Player</div><div>Age</div><div>Team</div><div>Value</div><div>Tier</div></div>
+        <div id="dynasty-body"></div>
+      </div>
+    </div>
+    <div id="tab-rookie" style="display:none">
+      <div style="background:var(--surface);border:1px solid var(--accent-dim);border-radius:var(--radius);padding:14px 18px;margin-bottom:16px;font-size:13px;color:var(--muted)">
+        ⚡ <strong style="color:var(--accent)">2026 NFL Draft — April 23–25</strong> · Rankings based on current pre-draft capital &amp; Combine results. Source: FantasyPros / DraftSharks / PFF (Mar 2026)
+      </div>
+      <div class="rankings-table">
+        <div class="rt-header rt-rook"><div>Pick</div><div>Prospect</div><div>Pos</div><div>College</div><div>Draft Proj</div><div>FF Val</div></div>
+        <div id="rookie-body"></div>
+      </div>
+    </div>
+    <div id="tab-idp" style="display:none">
+      <div style="background:var(--surface);border:1px solid var(--accent-dim);border-radius:var(--radius);padding:14px 18px;margin-bottom:16px;font-size:13px;color:var(--muted)">
+        🛡 <strong style="color:var(--accent)">2026 IDP Rankings</strong> · Based on 2025 production + dynasty value. Source: DraftSharks / DynastyNerds / FantasyAlarm
+      </div>
+      <div class="filter-row">
+        <div class="filter-pill active" onclick="filterIDP(this,'ALL')">All</div>
+        <div class="filter-pill" onclick="filterIDP(this,'LB')">LB</div>
+        <div class="filter-pill" onclick="filterIDP(this,'DL')">DL / Edge</div>
+        <div class="filter-pill" onclick="filterIDP(this,'DB')">DB / S</div>
+      </div>
+      <div class="rankings-table">
+        <div class="rt-header rt-idp"><div>Rank</div><div>Player</div><div>Pos</div><div>Team</div><div>Tkl</div><div>Sacks</div><div>Score</div></div>
+        <div id="idp-body"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- NEWS -->
+  <div id="page-news" class="page">
+    <div class="section-header"><div class="section-title">News &amp; Free Agency Updates</div></div>
+    <div class="filter-row">
+      <div class="filter-pill active" onclick="filterNews(this,'all')">All</div>
+      <div class="filter-pill" onclick="filterNews(this,'fa')">Free Agency</div>
+      <div class="filter-pill" onclick="filterNews(this,'injury')">Injuries</div>
+      <div class="filter-pill" onclick="filterNews(this,'trade')">Trades</div>
+      <div class="filter-pill" onclick="filterNews(this,'rumor')">Rumors</div>
+    </div>
+    <div class="news-grid">
+      <div id="news-feed"></div>
+      <div>
+        <div class="sidebar-card"><h4>Biggest Risers</h4><div id="risers-list"></div></div>
+        <div class="sidebar-card"><h4>Biggest Fallers</h4><div id="fallers-list"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TRADE -->
+  <div id="page-trade" class="page">
+    <div class="section-header"><div class="section-title">Trade Calculator</div></div>
+
+    <!-- LEAGUE SETTINGS TOGGLES -->
+    <div class="tc-settings">
+      <div class="tc-settings-title">⚙️ League Settings</div>
+      <div class="tc-toggles">
+
+        <div class="tc-toggle-group">
+          <div class="tc-toggle-label">
+            <span class="tc-toggle-name">League Type</span>
+            <span class="tc-toggle-desc">Dynasty values age &amp; long-term potential; Redraft values 2026 production</span>
+          </div>
+          <div class="tc-seg" id="seg-league">
+            <button class="tc-seg-btn active" onclick="setSeg(this,'league','redraft')">Redraft</button>
+            <button class="tc-seg-btn" onclick="setSeg(this,'league','dynasty')">Dynasty</button>
+          </div>
+        </div>
+
+        <div class="tc-toggle-group">
+          <div class="tc-toggle-label">
+            <span class="tc-toggle-name">Scoring Format</span>
+            <span class="tc-toggle-desc">PPR boosts WRs, TEs &amp; pass-catching RBs; Half PPR is a middle ground</span>
+          </div>
+          <div class="tc-seg" id="seg-scoring">
+            <button class="tc-seg-btn active" onclick="setSeg(this,'scoring','ppr')">PPR</button>
+            <button class="tc-seg-btn" onclick="setSeg(this,'scoring','half')">Half PPR</button>
+            <button class="tc-seg-btn" onclick="setSeg(this,'scoring','std')">Standard</button>
+          </div>
+        </div>
+
+        <div class="tc-toggle-group">
+          <div class="tc-toggle-label">
+            <span class="tc-toggle-name">QB Format</span>
+            <span class="tc-toggle-desc">SuperFlex allows a 2nd QB starter — dramatically increases QB scarcity &amp; value</span>
+          </div>
+          <div class="tc-seg" id="seg-qb">
+            <button class="tc-seg-btn active" onclick="setSeg(this,'qb','1qb')">1 QB</button>
+            <button class="tc-seg-btn" onclick="setSeg(this,'qb','sflex')">SuperFlex</button>
+          </div>
+        </div>
+
+        <div class="tc-toggle-group">
+          <div class="tc-toggle-label">
+            <span class="tc-toggle-name">TE Premium</span>
+            <span class="tc-toggle-desc">TEP gives TEs a bonus point per reception, raising elite TE value significantly</span>
+          </div>
+          <div class="tc-seg" id="seg-tep">
+            <button class="tc-seg-btn active" onclick="setSeg(this,'tep','none')">None</button>
+            <button class="tc-seg-btn" onclick="setSeg(this,'tep','tep')">TEP</button>
+          </div>
+        </div>
+
+      </div>
+      <div class="tc-settings-note" id="tc-settings-note">📋 Redraft · PPR · 1 QB · No TEP</div>
+    </div>
+
+    <!-- TRADE BUILDER -->
+    <div class="trade-grid">
+      <div class="trade-panel">
+        <div class="trade-side-label">You Give</div>
+        <div id="give-list"></div>
+        <div class="tc-search-wrap">
+          <input class="tc-search" id="give-search" placeholder="🔍 Search player to add..." oninput="showSuggestions(this,'give')" autocomplete="off">
+          <div class="tc-suggestions" id="give-suggestions"></div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:center;padding-top:52px;font-size:26px;color:var(--muted)">⇄</div>
+      <div class="trade-panel">
+        <div class="trade-side-label">You Receive</div>
+        <div id="receive-list"></div>
+        <div class="tc-search-wrap">
+          <input class="tc-search" id="receive-search" placeholder="🔍 Search player to add..." oninput="showSuggestions(this,'receive')" autocomplete="off">
+          <div class="tc-suggestions" id="receive-suggestions"></div>
+        </div>
+      </div>
+    </div>
+    <div class="trade-result" id="trade-result"></div>
+  </div>
+
+  <!-- SNAP DECISION ENGINE -->
+  <div id="page-snapdecision" class="page">
+    <div class="sd-hero">
+      <h1>⚡ <span>Snap</span> Decision Engine</h1>
+      <p>Get an instant AI-powered fantasy recommendation. Choose your decision type, fill in the details, and let the engine analyze trends, matchups, weather, injury reports, and more — in seconds.</p>
+    </div>
+
+    <!-- MODE SELECT -->
+    <div class="sd-mode-grid">
+      <div class="sd-mode-card selected" onclick="selectMode(this,'start-sit')">
+        <div class="icon">🏃</div>
+        <div class="mode-title">Start / Sit</div>
+        <div class="mode-desc">Should I start this player or bench them this week?</div>
+      </div>
+      <div class="sd-mode-card" onclick="selectMode(this,'draft-pick')">
+        <div class="icon">📋</div>
+        <div class="mode-title">Draft Pick</div>
+        <div class="mode-desc">Which player should I draft at my current pick?</div>
+      </div>
+      <div class="sd-mode-card" onclick="selectMode(this,'waiver')">
+        <div class="icon">📡</div>
+        <div class="mode-title">Waiver Add</div>
+        <div class="mode-desc">Should I add this player off waivers and who do I drop?</div>
+      </div>
+    </div>
+
+    <!-- FORM: START/SIT -->
+    <div id="sd-form-start-sit" class="sd-form">
+      <h3>🏃 Start / Sit Analyzer</h3>
+      <div class="sd-fields">
+        <div class="sd-row2">
+          <div class="sd-field">
+            <label>Player Name</label>
+            <div class="sd-autocomplete-wrap"><input class="sd-input" id="ss-player" placeholder="Search player..." autocomplete="off" oninput="sdAutoComplete(this,'ss-player-drop')"><div class="sd-ac-dropdown" id="ss-player-drop"></div></div>
+          </div>
+          <div class="sd-field">
+            <label>Position</label>
+            <select class="sd-select" id="ss-pos">
+              <option value="RB">RB</option><option value="WR">WR</option>
+              <option value="QB">QB</option><option value="TE">TE</option>
+              <option value="K">K</option><option value="DST">DST</option>
+            </select>
+          </div>
+        </div>
+        <div class="sd-row2">
+          <div class="sd-field">
+            <label>Opponent This Week</label>
+            <input class="sd-input" id="ss-opp" placeholder="e.g. Chicago Bears">
+          </div>
+          <div class="sd-field">
+            <label>Game Location</label>
+            <select class="sd-select" id="ss-loc">
+              <option value="home">Home</option>
+              <option value="away">Away</option>
+              <option value="neutral">Neutral</option>
+            </select>
+          </div>
+        </div>
+        <div class="sd-row3">
+          <div class="sd-field">
+            <label>Injury Status</label>
+            <select class="sd-select" id="ss-injury">
+              <option value="healthy">Healthy</option>
+              <option value="questionable">Questionable</option>
+              <option value="probable">Probable</option>
+              <option value="doubtful">Doubtful</option>
+            </select>
+          </div>
+          <div class="sd-field">
+            <label>Weather Forecast</label>
+            <select class="sd-select" id="ss-weather">
+              <option value="clear">Clear / Dome</option>
+              <option value="wind">High Wind (15+ mph)</option>
+              <option value="rain">Rain / Snow</option>
+              <option value="cold">Cold (&lt;30°F)</option>
+            </select>
+          </div>
+          <div class="sd-field">
+            <label>League Format</label>
+            <select class="sd-select" id="ss-format">
+              <option value="PPR">PPR</option>
+              <option value="Half PPR">Half PPR</option>
+              <option value="Standard">Standard</option>
+              <option value="SuperFlex">SuperFlex</option>
+            </select>
+          </div>
+        </div>
+        <div class="sd-field">
+          <label>Any extra context? (optional)</label>
+          <input class="sd-input" id="ss-context" placeholder="e.g. 'Coming off a 30-point game' or 'QB is banged up'">
+        </div>
+        <div class="sd-field">
+          <label>Factors to include in analysis</label>
+          <div class="sd-factors">
+            <div class="sd-factor on" onclick="toggleFactor(this)">Recent Form</div>
+            <div class="sd-factor on" onclick="toggleFactor(this)">Matchup Quality</div>
+            <div class="sd-factor on" onclick="toggleFactor(this)">Target Share / Usage</div>
+            <div class="sd-factor on" onclick="toggleFactor(this)">Injury Report</div>
+            <div class="sd-factor on" onclick="toggleFactor(this)">Weather</div>
+            <div class="sd-factor" onclick="toggleFactor(this)">Vegas Line / O/U</div>
+            <div class="sd-factor" onclick="toggleFactor(this)">Snap Count Trend</div>
+            <div class="sd-factor" onclick="toggleFactor(this)">Red Zone Targets</div>
+          </div>
+        </div>
+      </div>
+      <button class="sd-submit" id="sd-btn" onclick="runSnapDecision()">⚡ MAKE MY SNAP DECISION</button>
+    </div>
+
+    <!-- FORM: DRAFT PICK -->
+    <div id="sd-form-draft-pick" class="sd-form" style="display:none">
+      <h3>📋 Draft Pick Advisor</h3>
+      <div class="sd-fields">
+        <div class="sd-row2">
+          <div class="sd-field">
+            <label>Player A (Option 1)</label>
+            <div class="sd-autocomplete-wrap"><input class="sd-input" id="dp-p1" placeholder="Search player..." autocomplete="off" oninput="sdAutoComplete(this,'dp-p1-drop')"><div class="sd-ac-dropdown" id="dp-p1-drop"></div></div>
+          </div>
+          <div class="sd-field">
+            <label>Player B (Option 2)</label>
+            <div class="sd-autocomplete-wrap"><input class="sd-input" id="dp-p2" placeholder="Search player..." autocomplete="off" oninput="sdAutoComplete(this,'dp-p2-drop')"><div class="sd-ac-dropdown" id="dp-p2-drop"></div></div>
+          </div>
+        </div>
+        <div class="sd-row3">
+          <div class="sd-field">
+            <label>Your Draft Pick #</label>
+            <input class="sd-input" id="dp-pick" placeholder="e.g. 7" type="number">
+          </div>
+          <div class="sd-field">
+            <label>Draft Type</label>
+            <select class="sd-select" id="dp-type">
+              <option>Redraft</option><option>Dynasty</option><option>Rookie</option><option>Best Ball</option>
+            </select>
+          </div>
+          <div class="sd-field">
+            <label>League Format</label>
+            <select class="sd-select" id="dp-format">
+              <option>PPR</option><option>Half PPR</option><option>Standard</option><option>SuperFlex</option>
+            </select>
+          </div>
+        </div>
+        <div class="sd-field">
+          <label>Your team needs (optional)</label>
+          <input class="sd-input" id="dp-needs" placeholder="e.g. 'Already have 2 RBs, need WR depth'">
+        </div>
+      </div>
+      <button class="sd-submit" onclick="runSnapDecision()">⚡ MAKE MY SNAP DECISION</button>
+    </div>
+
+    <!-- FORM: WAIVER -->
+    <div id="sd-form-waiver" class="sd-form" style="display:none">
+      <h3>📡 Waiver Wire Advisor</h3>
+      <div class="sd-fields">
+        <div class="sd-row2">
+          <div class="sd-field">
+            <label>Player to Add</label>
+            <div class="sd-autocomplete-wrap"><input class="sd-input" id="wv-add" placeholder="Search player to add..." autocomplete="off" oninput="sdAutoComplete(this,'wv-add-drop')"><div class="sd-ac-dropdown" id="wv-add-drop"></div></div>
+          </div>
+          <div class="sd-field">
+            <label>Player to Drop</label>
+            <div class="sd-autocomplete-wrap"><input class="sd-input" id="wv-drop" placeholder="Search player to drop..." autocomplete="off" oninput="sdAutoComplete(this,'wv-drop-drop')"><div class="sd-ac-dropdown" id="wv-drop-drop"></div></div>
+          </div>
+        </div>
+        <div class="sd-row2">
+          <div class="sd-field">
+            <label>League Format</label>
+            <select class="sd-select" id="wv-format">
+              <option>PPR</option><option>Half PPR</option><option>Standard</option><option>SuperFlex</option>
+            </select>
+          </div>
+          <div class="sd-field">
+            <label>Roster Situation</label>
+            <select class="sd-select" id="wv-roster">
+              <option value="playoff">Playoff push</option>
+              <option value="rebuild">Rebuilding</option>
+              <option value="solid">Solid team</option>
+            </select>
+          </div>
+        </div>
+        <div class="sd-field">
+          <label>Extra context (optional)</label>
+          <input class="sd-input" id="wv-context" placeholder="e.g. 'Mitchell is the starter now, Pollard is splitting carries'">
+        </div>
+      </div>
+      <button class="sd-submit" onclick="runSnapDecision()">⚡ MAKE MY SNAP DECISION</button>
+    </div>
+
+    <!-- THINKING INDICATOR -->
+    <div class="sd-thinking" id="sd-thinking">
+      <div class="sd-spinner"></div>
+      <div class="sd-thinking-text">
+        <strong>Analyzing your decision...</strong>
+        Scanning matchup data, injury reports, recent trends, weather &amp; usage patterns
+      </div>
+    </div>
+
+    <!-- RESULT -->
+    <div class="sd-result" id="sd-result">
+      <div class="sd-verdict-bar" id="sd-verdict-bar">
+        <div class="sd-verdict-icon" id="sd-verdict-icon">✅</div>
+        <div>
+          <div class="sd-verdict-label" id="sd-verdict-label">START HIM</div>
+          <div class="sd-verdict-sub" id="sd-verdict-sub">Strong recommendation based on 5 key factors</div>
+        </div>
+        <div class="sd-confidence">
+          <div class="sd-conf-val" id="sd-conf-val">87%</div>
+          <div class="sd-conf-lbl">Confidence</div>
+        </div>
+      </div>
+      <div class="sd-factors-grid" id="sd-factors-grid"></div>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:16px">
+        <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:12px">Full Analysis</div>
+        <div class="sd-analysis" id="sd-analysis-text"></div>
+      </div>
+      <button class="sd-reset" onclick="resetDecision()">← Make Another Decision</button>
+    </div>
+  </div>
+
+  <!-- NFL ROSTERS PAGE -->
+  <div id="page-rosters" class="page">
+    <div class="section-header">
+      <div class="section-title">NFL Rosters &amp; Depth Charts</div>
+      <div id="roster-sync-status" style="font-size:11px;color:var(--muted);font-weight:600"></div>
+    </div>
+
+    <!-- Team selector -->
+    <div style="margin-bottom:18px">
+      <div class="filter-row" style="flex-wrap:wrap;gap:6px">
+        <input class="search-box" id="roster-search" placeholder="🔍 Search any player..." oninput="rosterSearchPlayer(this.value)" style="margin-left:0;width:200px">
+        <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">
+          <div class="filter-pill active" onclick="rosterFilterPos(this,'ALL')">All Pos</div>
+          <div class="filter-pill" onclick="rosterFilterPos(this,'QB')">QB</div>
+          <div class="filter-pill" onclick="rosterFilterPos(this,'RB')">RB</div>
+          <div class="filter-pill" onclick="rosterFilterPos(this,'WR')">WR</div>
+          <div class="filter-pill" onclick="rosterFilterPos(this,'TE')">TE</div>
+        </div>
+      </div>
+      <!-- Team tabs -->
+      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:12px" id="team-tabs"></div>
+    </div>
+
+    <!-- Roster table -->
+    <div id="roster-content">
+      <div style="padding:40px;text-align:center;color:var(--muted)">
+        <div style="font-size:32px;margin-bottom:12px">🏈</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1px">Loading NFL Rosters...</div>
+        <div style="font-size:13px;margin-top:6px">Fetching live rosters from ESPN</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MOCK DRAFT PAGE -->
+  <div id="page-mockdraft" class="page">
+    <div class="section-header"><div class="section-title">Mock Draft Simulator</div></div>
+
+    <!-- SETUP SCREEN -->
+    <div id="md-setup-screen" class="md-setup">
+      <h2>⚡ Draft Setup</h2>
+      <p>Configure your mock draft settings below. Human slots pick from the player pool — CPU slots auto-pick by best available.</p>
+
+      <div class="md-option-group">
+        <label>Number of Teams</label>
+        <div class="md-seg" id="md-teams-seg">
+          <button class="md-seg-btn" onclick="mdSetTeams(this,4)">4</button>
+          <button class="md-seg-btn" onclick="mdSetTeams(this,6)">6</button>
+          <button class="md-seg-btn active" onclick="mdSetTeams(this,8)">8</button>
+          <button class="md-seg-btn" onclick="mdSetTeams(this,10)">10</button>
+          <button class="md-seg-btn" onclick="mdSetTeams(this,12)">12</button>
+        </div>
+      </div>
+
+      <div class="md-option-group">
+        <label>Player Pool</label>
+        <div class="md-seg" id="md-pool-seg">
+          <button class="md-seg-btn active" onclick="mdSetPool(this,'all')">All Players</button>
+          <button class="md-seg-btn" onclick="mdSetPool(this,'rookie')">Rookies Only</button>
+        </div>
+      </div>
+
+      <div class="md-option-group">
+        <label>Scoring Format</label>
+        <div class="md-seg" id="md-format-seg">
+          <button class="md-seg-btn active" onclick="mdSetFormat(this,'ppr')">PPR</button>
+          <button class="md-seg-btn" onclick="mdSetFormat(this,'half')">Half PPR</button>
+          <button class="md-seg-btn" onclick="mdSetFormat(this,'std')">Standard</button>
+        </div>
+      </div>
+
+      <div class="md-option-group">
+        <label>Seconds Per Pick</label>
+        <div class="md-seg" id="md-timer-seg">
+          <button class="md-seg-btn" onclick="mdSetTimer(this,30)">30s</button>
+          <button class="md-seg-btn active" onclick="mdSetTimer(this,60)">60s</button>
+          <button class="md-seg-btn" onclick="mdSetTimer(this,90)">90s</button>
+          <button class="md-seg-btn" onclick="mdSetTimer(this,120)">2 min</button>
+          <button class="md-seg-btn" onclick="mdSetTimer(this,0)">No Limit</button>
+        </div>
+      </div>
+
+      <div class="md-option-group">
+        <label>Team Slots — Click to toggle Human / CPU</label>
+        <div class="md-slots" id="md-slot-grid"></div>
+      </div>
+
+      <button class="md-start-btn" onclick="mdStartDraft()">⚡ START DRAFT</button>
+    </div>
+
+    <!-- DRAFT BOARD -->
+    <div id="md-board-screen" class="md-board">
+      <div class="md-header" style="position:relative">
+        <button class="md-board-exit" onclick="mdExitDraft()">✕ Exit Draft</button>
+        <div class="md-round-badge" id="md-round-label">Round 1</div>
+        <div class="md-pick-info">
+          <div class="who" id="md-picking-label">Team 1 is on the clock</div>
+          <div class="sub" id="md-pick-counter">Pick 1 of 40</div>
+        </div>
+        <div class="md-timer" id="md-timer-display">60</div>
+        <button class="md-skip-btn" onclick="mdSkipPick()">CPU Pick ▶</button>
+      </div>
+
+      <div class="md-main">
+        <div class="md-player-pool">
+          <div class="md-pool-header">
+            <input class="md-pool-search" id="md-search" placeholder="Search players..." oninput="mdFilterPool(this.value)">
+            <div class="md-pos-filter">
+              <button class="md-pos-btn active" onclick="mdPosFilter(this,'ALL')">All</button>
+              <button class="md-pos-btn" onclick="mdPosFilter(this,'QB')">QB</button>
+              <button class="md-pos-btn" onclick="mdPosFilter(this,'RB')">RB</button>
+              <button class="md-pos-btn" onclick="mdPosFilter(this,'WR')">WR</button>
+              <button class="md-pos-btn" onclick="mdPosFilter(this,'TE')">TE</button>
+            </div>
+          </div>
+          <div class="md-pool-list" id="md-pool-list"></div>
+        </div>
+
+        <div class="md-sidebar">
+          <div class="md-picks-panel">
+            <div class="md-picks-header">Recent Picks</div>
+            <div class="md-picks-list" id="md-recent-picks"></div>
+          </div>
+          <div class="md-rosters-panel">
+            <div class="md-rosters-header" id="md-roster-tabs"></div>
+            <div class="md-roster-list" id="md-roster-view"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- COMPLETE SCREEN -->
+    <div id="md-complete-screen" class="md-complete">
+      <h2>🏆 Draft Complete!</h2>
+      <div class="md-complete-tabs">
+        <button class="md-complete-tab active" onclick="mdCompleteTab(this,'results')">Draft Results</button>
+        <button class="md-complete-tab" onclick="mdCompleteTab(this,'adp')">📊 ADP Database</button>
+      </div>
+      <div id="md-results-panel">
+        <div id="md-results"></div>
+      </div>
+      <div id="md-adp-panel" style="display:none">
+        <div class="md-adp-panel">
+          <h3>Average Draft Position</h3>
+          <p>Built from every mock draft run on this device. More drafts = more accurate ADP data.</p>
+          <div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap" id="md-adp-filters">
+            <div class="filter-pill active" onclick="mdADPFilter(this,'ALL')">All</div>
+            <div class="filter-pill" onclick="mdADPFilter(this,'QB')">QB</div>
+            <div class="filter-pill" onclick="mdADPFilter(this,'RB')">RB</div>
+            <div class="filter-pill" onclick="mdADPFilter(this,'WR')">WR</div>
+            <div class="filter-pill" onclick="mdADPFilter(this,'TE')">TE</div>
+          </div>
+          <div id="md-adp-content"></div>
+        </div>
+      </div>
+      <div>
+        <button class="md-restart-btn" onclick="mdRestart()">NEW DRAFT</button>
+        <button class="md-exit-btn" onclick="showPage('home')">EXIT</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHAT -->
+  <div id="page-chat" class="page">
+    <div class="section-header"><div class="section-title">Community Chat Board</div></div>
+    <div class="chat-layout">
+      <div class="chat-channels">
+        <div class="chat-ch-title">Channels</div>
+        <div class="channel-item active"><span style="opacity:.5">#</span> General <span class="ch-badge">18</span></div>
+        <div class="channel-item"><span style="opacity:.5">#</span> Free Agency</div>
+        <div class="channel-item"><span style="opacity:.5">#</span> Trade Talk <span class="ch-badge">5</span></div>
+        <div class="channel-item"><span style="opacity:.5">#</span> IDP</div>
+        <div class="channel-item"><span style="opacity:.5">#</span> Dynasty</div>
+        <div class="channel-item"><span style="opacity:.5">#</span> Rookie Draft</div>
+        <div class="channel-item"><span style="opacity:.5">#</span> Off-Topic</div>
+      </div>
+      <div class="chat-main">
+        <div class="chat-header">
+          <div class="live-dot"></div>
+          <h3># General</h3>
+          <p>3,841 members online</p>
+        </div>
+        <div class="chat-messages" id="chat-messages"></div>
+        <div class="chat-input-row">
+          <input class="chat-input" id="chat-input" placeholder="Message #general..." onkeydown="if(event.key==='Enter')sendChat()">
+          <button class="chat-send" onclick="sendChat()">SEND</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const redraft=[
+  {rank:1, name:'Bijan Robinson',     team:'ATL · RB',pos:'RB',proj:342,adp:1.2, age:23,delta:'+0', score:99,trend:'up'},
+  {rank:2, name:'Jahmyr Gibbs',       team:'DET · RB',pos:'RB',proj:335,adp:2.1, age:22,delta:'+1', score:97,trend:'up'},
+  {rank:3, name:"Ja'Marr Chase",      team:'CIN · WR',pos:'WR',proj:328,adp:2.8, age:25,delta:'+0', score:96,trend:'up'},
+  {rank:4, name:'Jaxon Smith-Njigba', team:'SEA · WR',pos:'WR',proj:318,adp:3.5, age:22,delta:'+3', score:95,trend:'up'},
+  {rank:5, name:'Josh Allen',         team:'BUF · QB',pos:'QB',proj:430,adp:4.0, age:29,delta:'+0', score:94,trend:'up'},
+  {rank:6, name:"De'Von Achane",      team:'MIA · RB',pos:'RB',proj:295,adp:5.5, age:23,delta:'+2', score:93,trend:'up'},
+  {rank:7, name:'Jonathan Taylor',    team:'IND · RB',pos:'RB',proj:288,adp:6.2, age:26,delta:'-2', score:90,trend:'dn'},
+  {rank:8, name:'Trey McBride',       team:'ARI · TE',pos:'TE',proj:278,adp:7.1, age:24,delta:'+1', score:89,trend:'up'},
+  {rank:9, name:'Puka Nacua',         team:'LAR · WR',pos:'WR',proj:271,adp:7.8, age:23,delta:'+4', score:88,trend:'up'},
+  {rank:10,name:'Justin Jefferson',   team:'MIN · WR',pos:'WR',proj:265,adp:8.4, age:26,delta:'+2', score:87,trend:'up'},
+  {rank:11,name:'Drake Maye',         team:'NE · QB', pos:'QB',proj:398,adp:9.0, age:22,delta:'+5', score:86,trend:'up'},
+  {rank:12,name:'CeeDee Lamb',        team:'DAL · WR',pos:'WR',proj:261,adp:9.5, age:25,delta:'+0', score:86,trend:'up'},
+  {rank:13,name:'Lamar Jackson',      team:'BAL · QB',pos:'QB',proj:395,adp:10.2,age:28,delta:'+0', score:85,trend:'up'},
+  {rank:14,name:'Amon-Ra St. Brown',  team:'DET · WR',pos:'WR',proj:254,adp:11.0,age:25,delta:'+0', score:84,trend:'up'},
+  {rank:15,name:'Breece Hall',        team:'NYJ · RB',pos:'RB',proj:248,adp:11.8,age:23,delta:'-2', score:83,trend:'dn'},
+];
+const dynasty=[
+  {rank:1, name:"Ja'Marr Chase",      team:'CIN',pos:'WR',age:25,value:99,tier:'Elite'},
+  {rank:2, name:'Jahmyr Gibbs',       team:'DET',pos:'RB',age:22,value:98,tier:'Elite'},
+  {rank:3, name:'Jaxon Smith-Njigba', team:'SEA',pos:'WR',age:22,value:97,tier:'Elite'},
+  {rank:4, name:'Bijan Robinson',     team:'ATL',pos:'RB',age:23,value:96,tier:'Elite'},
+  {rank:5, name:'Drake Maye',         team:'NE', pos:'QB',age:22,value:95,tier:'Elite'},
+  {rank:6, name:"De'Von Achane",      team:'MIA',pos:'RB',age:23,value:94,tier:'Tier 1'},
+  {rank:7, name:'Lamar Jackson',      team:'BAL',pos:'QB',age:28,value:92,tier:'Tier 1'},
+  {rank:8, name:'Trey McBride',       team:'ARI',pos:'TE',age:24,value:91,tier:'Tier 1'},
+  {rank:9, name:'Jayden Daniels',     team:'WAS',pos:'QB',age:24,value:90,tier:'Tier 1'},
+  {rank:10,name:'CeeDee Lamb',        team:'DAL',pos:'WR',age:25,value:89,tier:'Tier 1'},
+  {rank:11,name:'Josh Allen',         team:'BUF',pos:'QB',age:29,value:88,tier:'Tier 1'},
+  {rank:12,name:'Malik Nabers',       team:'NYG',pos:'WR',age:22,value:87,tier:'Tier 2'},
+  {rank:13,name:'Brock Bowers',       team:'LV', pos:'TE',age:22,value:86,tier:'Tier 2'},
+  {rank:14,name:'Puka Nacua',         team:'LAR',pos:'WR',age:23,value:85,tier:'Tier 2'},
+  {rank:15,name:'Kenneth Walker III', team:'KC', pos:'RB',age:24,value:83,tier:'Tier 2'},
+];
+const rookies=[
+  {pick:'1.01',name:'Jeremiyah Love',   pos:'RB',college:'Notre Dame',   draftProj:'RD1 Top 10',   ffVal:'1.01'},
+  {pick:'1.02',name:'Fernando Mendoza', pos:'QB',college:'Indiana',      draftProj:'RD1 #1 Overall',ffVal:'1.02 SF'},
+  {pick:'1.03',name:'Carnell Tate',     pos:'WR',college:'Ohio State',   draftProj:'RD1 Top 10',   ffVal:'1.03'},
+  {pick:'1.04',name:'Jordyn Tyson',     pos:'WR',college:'Arizona State',draftProj:'RD1 Top 15',   ffVal:'1.04'},
+  {pick:'1.05',name:'Makai Lemon',      pos:'WR',college:'USC',          draftProj:'RD1 Top 20',   ffVal:'1.05'},
+  {pick:'1.06',name:'Ashton Jeanty',    pos:'RB',college:'Boise State',  draftProj:'RD1 Top 5',    ffVal:'1.03'},
+  {pick:'1.07',name:'Ty Simpson',       pos:'QB',college:'Alabama',      draftProj:'RD1 Top 20',   ffVal:'1.06 SF'},
+  {pick:'1.08',name:'Omar Cooper Jr.',  pos:'WR',college:'Tennessee',    draftProj:'RD1 Late',     ffVal:'1.07'},
+  {pick:'1.09',name:'Colston Loveland', pos:'TE',college:'Michigan',     draftProj:'RD1',          ffVal:'1.08'},
+  {pick:'1.10',name:'K.C. Concepcion', pos:'WR',college:'Washington',   draftProj:'RD2 Early',    ffVal:'1.09'},
+  {pick:'1.11',name:'Taylen Green',     pos:'QB',college:'Arkansas',     draftProj:'RD2-3',        ffVal:'2.01 SF'},
+  {pick:'1.12',name:'Denzel Boston',    pos:'WR',college:'Oklahoma',     draftProj:'RD2',          ffVal:'1.10'},
+];
+const idpData=[
+  {rank:1, name:'Roquan Smith',      pos:'LB',team:'BAL',tkl:148,sacks:2,  score:98,tier:'LB1'},
+  {rank:2, name:'Zaire Franklin',    pos:'LB',team:'IND',tkl:144,sacks:1.5,score:97,tier:'LB1'},
+  {rank:3, name:'Myles Garrett',     pos:'DL',team:'CLE',tkl:44, sacks:16, score:96,tier:'DL1'},
+  {rank:4, name:'Micah Parsons',     pos:'LB',team:'DAL',tkl:68, sacks:12, score:95,tier:'LB1'},
+  {rank:5, name:'Maxx Crosby',       pos:'DL',team:'LV', tkl:52, sacks:14, score:94,tier:'DL1'},
+  {rank:6, name:'Zach Baun',         pos:'LB',team:'PHI',tkl:136,sacks:3,  score:93,tier:'LB1'},
+  {rank:7, name:'Foye Oluokun',      pos:'LB',team:'JAX',tkl:138,sacks:1,  score:92,tier:'LB1'},
+  {rank:8, name:'Jared Verse',       pos:'DL',team:'LAR',tkl:48, sacks:12, score:91,tier:'DL1'},
+  {rank:9, name:'Will Anderson Jr.', pos:'DL',team:'HOU',tkl:45, sacks:13, score:90,tier:'DL1'},
+  {rank:10,name:'Nick Bosa',         pos:'DL',team:'SF', tkl:42, sacks:15, score:89,tier:'DL1'},
+  {rank:11,name:'Travis Hunter',     pos:'DB',team:'JAX',tkl:58, sacks:0,  score:88,tier:'DB1'},
+  {rank:12,name:'Kyle Hamilton',     pos:'DB',team:'BAL',tkl:82, sacks:1,  score:87,tier:'DB1'},
+  {rank:13,name:'Aidan Hutchinson',  pos:'DL',team:'DET',tkl:44, sacks:11, score:86,tier:'DL1'},
+  {rank:14,name:'Trey Hendrickson',  pos:'DL',team:'BAL',tkl:36, sacks:17, score:85,tier:'DL1'},
+  {rank:15,name:'Talanoa Hufanga',   pos:'DB',team:'SF', tkl:74, sacks:1,  score:83,tier:'DB1'},
+];
+const newsItems=[
+  {tag:'fa',    label:'Free Agency',headline:"Kenneth Walker III signs 3-year $43M deal with Kansas City Chiefs — Super Bowl MVP joins Patrick Mahomes' offense",time:'Mar 12',source:'NBC Sports'},
+  {tag:'trade', label:'Trade',      headline:"Kyler Murray released by Cardinals, signs 1-year deal with Minnesota Vikings — major boost for Justin Jefferson's 2026 value",time:'Mar 11',source:'ESPN'},
+  {tag:'fa',    label:'Free Agency',headline:"Tua Tagovailoa lands with Atlanta Falcons on 1-year deal — will compete with Michael Penix Jr. for the starting role",time:'Mar 11',source:'FantasyPros'},
+  {tag:'injury',label:'Injury',     headline:"Zach Charbonnet ACL surgery went 'very well' per Seahawks GM — timeline 8-12 months, likely misses 2026 Week 1",time:'Mar 10',source:'RotoBaller'},
+  {tag:'fa',    label:'Free Agency',headline:"Mike Evans leaves Tampa Bay after 12 seasons, joins San Francisco 49ers — solid fantasy WR2 upside alongside Brock Purdy",time:'Mar 10',source:'CBS Sports'},
+  {tag:'injury',label:'Injury',     headline:"Tyreek Hill's dislocated knee and multiple torn ligaments could sideline him all of 2026 — Dolphins release veteran WR",time:'Mar 9',source:'Yahoo Sports'},
+  {tag:'fa',    label:'Free Agency',headline:"Travis Etienne Jr. signs with New Orleans Saints — immediate RB1 candidate in a Saints offense hungry for a featured back",time:'Mar 9',source:'FTN Fantasy'},
+  {tag:'trade', label:'Trade',      headline:"Trey Hendrickson signs with Baltimore Ravens after Maxx Crosby trade fell through — massive 2026 IDP value",time:'Mar 11',source:'ESPN'},
+  {tag:'rumor', label:'Rumor',      headline:"Malik Nabers ACL tear puts Giants WR timeline in doubt for Week 1 — dynasty managers in buy-window despite injury risk",time:'Mar 8',source:'RotoBaller'},
+  {tag:'fa',    label:'Free Agency',headline:"Breece Hall receives franchise tag from Jets — secures RB starter status in 2026 despite ongoing QB uncertainty",time:'Mar 7',source:'CBS Sports'},
+];
+const risers=[
+  {name:'Kenneth Walker III',team:'KC · RB', note:'Chiefs offense boost'},
+  {name:'Justin Jefferson',  team:'MIN · WR',note:'Kyler Murray upgrade'},
+  {name:'Travis Etienne Jr.',team:'NO · RB', note:'Lead back opportunity'},
+  {name:"De'Von Achane",     team:'MIA · RB',note:'Offense stays intact'},
+  {name:'Mike Evans',        team:'SF · WR', note:'Brock Purdy upgrade'},
+];
+const fallers=[
+  {name:'Tyreek Hill',      team:'FA · WR', note:'Serious knee — likely 2026 out'},
+  {name:'Zach Charbonnet',  team:'SEA · RB',note:'ACL — misses Week 1'},
+  {name:'J.J. McCarthy',    team:'MIN · QB',note:'Kyler Murray competition'},
+  {name:'Jaylen Waddle',    team:'MIA · WR',note:'Downgrade to Malik Willis'},
+  {name:'Travis Kelce',     team:'KC · TE', note:'Reduced role expected'},
+];
+const chats=[
+  {user:'DynastyKing', init:'DK',msg:"Walker to the Chiefs is wild — does that make him a top 10 pick or is he capped behind Mahomes' passing game?",time:'11:02 AM'},
+  {user:'RookieNerd',  init:'RN',msg:"Jeremiyah Love is the easy 1.01 everywhere. The RB class drops off a cliff after him",time:'11:04 AM'},
+  {user:'IDPGlossier', init:'IG',msg:"Trey Hendrickson to Baltimore is HUGE for IDP managers — rushing opposite Roquan Smith's scheme now",time:'11:07 AM'},
+  {user:'You',         init:'ME',msg:"What do we think about Kyler Murray to the Vikings for Justin Jefferson's dynasty value?",time:'11:10 AM',self:true},
+  {user:'DynastyKing', init:'DK',msg:"Jefferson goes from borderline WR1/2 to a top 5 lock in most formats — massive buy window right now",time:'11:12 AM'},
+  {user:'FANatic2026', init:'FA',msg:"Don't sleep on Carnell Tate. Ohio State WRs with Chase's draft capital have been money for years",time:'11:15 AM'},
+];
+
+// ========== TRADE CALCULATOR ==========
+// Fields: name, pos, team, age, redraft, dynasty, rec (catch rate 0-100), sfBonus
+// rec = how much PPR/receiving boosts this player (0=pure rusher, 100=pure pass catcher)
+const playerDB = [
+  // ===== QBs =====
+  {name:'Josh Allen',           pos:'QB',team:'BUF',age:29,redraft:94,dynasty:88,rec:20,sfBonus:18},
+  {name:'Lamar Jackson',        pos:'QB',team:'BAL',age:28,redraft:85,dynasty:85,rec:18,sfBonus:18},
+  {name:'Patrick Mahomes',      pos:'QB',team:'KC', age:30,redraft:82,dynasty:80,rec:14,sfBonus:17},
+  {name:'Drake Maye',           pos:'QB',team:'NE', age:22,redraft:80,dynasty:95,rec:15,sfBonus:22},
+  {name:'Jayden Daniels',       pos:'QB',team:'WAS',age:24,redraft:80,dynasty:90,rec:20,sfBonus:20},
+  {name:'Kyler Murray',         pos:'QB',team:'MIN',age:28,redraft:75,dynasty:72,rec:18,sfBonus:16},
+  {name:'C.J. Stroud',          pos:'QB',team:'HOU',age:24,redraft:74,dynasty:85,rec:14,sfBonus:17},
+  {name:'Jalen Hurts',          pos:'QB',team:'PHI',age:27,redraft:82,dynasty:80,rec:22,sfBonus:18},
+  {name:'Joe Burrow',           pos:'QB',team:'CIN',age:29,redraft:76,dynasty:76,rec:14,sfBonus:16},
+  {name:'Justin Herbert',       pos:'QB',team:'LAC',age:28,redraft:74,dynasty:75,rec:12,sfBonus:15},
+  {name:'Dak Prescott',         pos:'QB',team:'DAL',age:32,redraft:68,dynasty:55,rec:12,sfBonus:14},
+  {name:'Sam Darnold',          pos:'QB',team:'NYJ',age:29,redraft:62,dynasty:52,rec:10,sfBonus:12},
+  {name:'Geno Smith',           pos:'QB',team:'NYJ',age:35,redraft:55,dynasty:30,rec:10,sfBonus:10},
+  {name:'Tua Tagovailoa',       pos:'QB',team:'ATL',age:28,redraft:58,dynasty:50,rec:10,sfBonus:11},
+  {name:'Malik Willis',         pos:'QB',team:'MIA',age:26,redraft:52,dynasty:62,rec:22,sfBonus:14},
+  {name:'Jordan Love',          pos:'QB',team:'GB', age:27,redraft:72,dynasty:78,rec:12,sfBonus:15},
+  {name:'Trevor Lawrence',      pos:'QB',team:'JAX',age:26,redraft:68,dynasty:74,rec:12,sfBonus:14},
+  {name:'Anthony Richardson',   pos:'QB',team:'IND',age:24,redraft:65,dynasty:80,rec:25,sfBonus:16},
+  {name:'Bryce Young',          pos:'QB',team:'CAR',age:24,redraft:55,dynasty:68,rec:14,sfBonus:12},
+  {name:'Will Levis',           pos:'QB',team:'TEN',age:26,redraft:52,dynasty:58,rec:12,sfBonus:12},
+  {name:'Sam Howell',           pos:'QB',team:'SEA',age:25,redraft:50,dynasty:60,rec:12,sfBonus:11},
+  {name:'Jaxson Dart',          pos:'QB',team:'NYG',age:22,redraft:45,dynasty:72,rec:12,sfBonus:13},
+  {name:'Bo Nix',               pos:'QB',team:'DEN',age:25,redraft:62,dynasty:70,rec:16,sfBonus:13},
+  {name:'Caleb Williams',       pos:'QB',team:'CHI',age:24,redraft:68,dynasty:82,rec:18,sfBonus:16},
+  {name:'Michael Penix Jr.',    pos:'QB',team:'ATL',age:25,redraft:55,dynasty:72,rec:14,sfBonus:13},
+  {name:'Russell Wilson',       pos:'QB',team:'PIT',age:37,redraft:52,dynasty:20,rec:14,sfBonus:11},
+  {name:'Derek Carr',           pos:'QB',team:'NO', age:35,redraft:50,dynasty:22,rec:10,sfBonus:10},
+  {name:'Jacoby Brissett',      pos:'QB',team:'FA', age:32,redraft:38,dynasty:15,rec:8, sfBonus:8},
+  {name:'Deshaun Watson',       pos:'QB',team:'CLE',age:30,redraft:42,dynasty:38,rec:14,sfBonus:9},
+  {name:'Andy Dalton',          pos:'QB',team:'FA', age:39,redraft:30,dynasty:5, rec:8, sfBonus:6},
+
+  // ===== RBs =====
+  {name:'Bijan Robinson',       pos:'RB',team:'ATL',age:23,redraft:99,dynasty:96,rec:90,sfBonus:0},
+  {name:'Jahmyr Gibbs',         pos:'RB',team:'DET',age:22,redraft:97,dynasty:98,rec:88,sfBonus:0},
+  {name:"De'Von Achane",        pos:'RB',team:'MIA',age:23,redraft:93,dynasty:94,rec:85,sfBonus:0},
+  {name:'Jonathan Taylor',      pos:'RB',team:'IND',age:26,redraft:90,dynasty:82,rec:60,sfBonus:0},
+  {name:'Breece Hall',          pos:'RB',team:'NYJ',age:23,redraft:83,dynasty:88,rec:75,sfBonus:0},
+  {name:'Kenneth Walker III',   pos:'RB',team:'KC', age:24,redraft:83,dynasty:83,rec:55,sfBonus:0},
+  {name:'Travis Etienne Jr.',   pos:'RB',team:'NO', age:25,redraft:80,dynasty:78,rec:70,sfBonus:0},
+  {name:'Derrick Henry',        pos:'RB',team:'BAL',age:32,redraft:74,dynasty:40,rec:35,sfBonus:0},
+  {name:'Chuba Hubbard',        pos:'RB',team:'CAR',age:26,redraft:68,dynasty:65,rec:55,sfBonus:0},
+  {name:'James Cook',           pos:'RB',team:'BUF',age:25,redraft:75,dynasty:78,rec:72,sfBonus:0},
+  {name:'Kyren Williams',       pos:'RB',team:'LAR',age:25,redraft:73,dynasty:74,rec:68,sfBonus:0},
+  {name:'David Montgomery',     pos:'RB',team:'DET',age:27,redraft:65,dynasty:55,rec:50,sfBonus:0},
+  {name:'Rachaad White',        pos:'RB',team:'TB', age:26,redraft:64,dynasty:62,rec:80,sfBonus:0},
+  {name:'Tank Bigsby',          pos:'RB',team:'JAX',age:23,redraft:66,dynasty:74,rec:42,sfBonus:0},
+  {name:'Zach Charbonnet',      pos:'RB',team:'SEA',age:24,redraft:45,dynasty:78,rec:50,sfBonus:0},
+  {name:'Brian Robinson Jr.',   pos:'RB',team:'WAS',age:26,redraft:62,dynasty:55,rec:35,sfBonus:0},
+  {name:'Jerome Ford',          pos:'RB',team:'CLE',age:25,redraft:58,dynasty:60,rec:60,sfBonus:0},
+  {name:'Isiah Pacheco',        pos:'RB',team:'KC', age:26,redraft:55,dynasty:58,rec:40,sfBonus:0},
+  {name:'AJ Dillon',            pos:'RB',team:'GB', age:27,redraft:48,dynasty:42,rec:35,sfBonus:0},
+  {name:'Miles Sanders',        pos:'RB',team:'CAR',age:28,redraft:42,dynasty:38,rec:45,sfBonus:0},
+  {name:'Dameon Pierce',        pos:'RB',team:'HOU',age:25,redraft:52,dynasty:58,rec:45,sfBonus:0},
+  {name:'Raheem Mostert',       pos:'RB',team:'MIA',age:33,redraft:35,dynasty:12,rec:55,sfBonus:0},
+  {name:'Tony Jones Jr.',       pos:'RB',team:'NO', age:27,redraft:40,dynasty:35,rec:50,sfBonus:0},
+  {name:'Cam Akers',            pos:'RB',team:'FA', age:26,redraft:38,dynasty:42,rec:40,sfBonus:0},
+  {name:'Kareem Hunt',          pos:'RB',team:'FA', age:30,redraft:35,dynasty:22,rec:48,sfBonus:0},
+  {name:'Zack Moss',            pos:'RB',team:'CIN',age:27,redraft:45,dynasty:40,rec:38,sfBonus:0},
+  {name:'Jaleel McLaughlin',    pos:'RB',team:'DEN',age:25,redraft:50,dynasty:55,rec:70,sfBonus:0},
+  {name:"D'Andre Swift",       pos:'RB',team:'CHI',age:26,redraft:60,dynasty:62,rec:72,sfBonus:0},
+  {name:'Javonte Williams',     pos:'RB',team:'DEN',age:25,redraft:55,dynasty:60,rec:55,sfBonus:0},
+  {name:'Rhamondre Stevenson',  pos:'RB',team:'NE', age:26,redraft:58,dynasty:60,rec:58,sfBonus:0},
+  {name:'Jeff Wilson Jr.',      pos:'RB',team:'MIA',age:30,redraft:35,dynasty:20,rec:40,sfBonus:0},
+  {name:'Gus Edwards',          pos:'RB',team:'LAC',age:30,redraft:38,dynasty:22,rec:25,sfBonus:0},
+  {name:'Antonio Gibson',       pos:'RB',team:'NE', age:26,redraft:42,dynasty:45,rec:65,sfBonus:0},
+  {name:'Tyler Allgeier',       pos:'RB',team:'FA', age:25,redraft:44,dynasty:48,rec:38,sfBonus:0},
+  {name:'Ezekiel Elliott',      pos:'RB',team:'FA', age:31,redraft:30,dynasty:12,rec:40,sfBonus:0},
+  {name:'Aaron Jones',           pos:'RB',team:'MIN',age:31,redraft:42,dynasty:32,rec:55,sfBonus:0},
+  {name:'Alexander Mattison',   pos:'RB',team:'FA',age:27,redraft:40,dynasty:35,rec:45,sfBonus:0},
+  {name:'Roschon Johnson',      pos:'RB',team:'CHI',age:24,redraft:45,dynasty:55,rec:45,sfBonus:0},
+  {name:'Clyde Edwards-Helaire', pos:'RB',team:'FA',age:26,redraft:38,dynasty:38,rec:60,sfBonus:0},
+  {name:'Boston Scott',         pos:'RB',team:'FA', age:30,redraft:28,dynasty:10,rec:50,sfBonus:0},
+  {name:'Nick Chubb',           pos:'RB',team:'CLE',age:30,redraft:38,dynasty:25,rec:30,sfBonus:0},
+  {name:'Joshua Kelley',        pos:'RB',team:'LAC',age:27,redraft:38,dynasty:35,rec:40,sfBonus:0},
+  {name:'Elijah Mitchell',      pos:'RB',team:'SF', age:27,redraft:45,dynasty:42,rec:45,sfBonus:0},
+  {name:'Justice Hill',         pos:'RB',team:'BAL',age:27,redraft:40,dynasty:38,rec:70,sfBonus:0},
+  {name:'J.K. Dobbins',         pos:'RB',team:'DEN',age:26,redraft:52,dynasty:52,rec:48,sfBonus:0},
+  {name:'Tyjae Spears',         pos:'RB',team:'TEN',age:24,redraft:50,dynasty:60,rec:72,sfBonus:0},
+  {name:'Devin Singletary',     pos:'RB',team:'NYG',age:28,redraft:42,dynasty:35,rec:50,sfBonus:0},
+  {name:'Samaje Perine',        pos:'RB',team:'DEN',age:29,redraft:36,dynasty:22,rec:55,sfBonus:0},
+  {name:'Kendre Miller',        pos:'RB',team:'NO', age:24,redraft:48,dynasty:58,rec:42,sfBonus:0},
+  {name:'Caleb Shudak',         pos:'RB',team:'FA', age:25,redraft:30,dynasty:28,rec:40,sfBonus:0},
+  {name:'Chris Rodriguez Jr.',  pos:'RB',team:'WAS',age:25,redraft:40,dynasty:45,rec:30,sfBonus:0},
+  {name:'Blake Corum',          pos:'RB',team:'LAR',age:23,redraft:45,dynasty:55,rec:42,sfBonus:0},
+  {name:'Kimani Vidal',         pos:'RB',team:'LAC',age:23,redraft:42,dynasty:55,rec:45,sfBonus:0},
+  {name:'MarShawn Lloyd',       pos:'RB',team:'GB', age:23,redraft:44,dynasty:58,rec:55,sfBonus:0},
+
+  // ===== WRs =====
+  {name:"Ja'Marr Chase",        pos:'WR',team:'CIN',age:25,redraft:96,dynasty:99,rec:95,sfBonus:0},
+  {name:'Jaxon Smith-Njigba',   pos:'WR',team:'SEA',age:22,redraft:95,dynasty:97,rec:93,sfBonus:0},
+  {name:'CeeDee Lamb',          pos:'WR',team:'DAL',age:25,redraft:86,dynasty:89,rec:84,sfBonus:0},
+  {name:'Justin Jefferson',     pos:'WR',team:'MIN',age:26,redraft:87,dynasty:89,rec:86,sfBonus:0},
+  {name:'Puka Nacua',           pos:'WR',team:'LAR',age:23,redraft:88,dynasty:90,rec:88,sfBonus:0},
+  {name:'Amon-Ra St. Brown',    pos:'WR',team:'DET',age:25,redraft:84,dynasty:86,rec:90,sfBonus:0},
+  {name:'Malik Nabers',         pos:'WR',team:'NYG',age:22,redraft:75,dynasty:87,rec:82,sfBonus:0},
+  {name:'Drake London',         pos:'WR',team:'ATL',age:24,redraft:72,dynasty:80,rec:78,sfBonus:0},
+  {name:'Jaylen Waddle',        pos:'WR',team:'DEN',age:27,redraft:70,dynasty:68,rec:88,sfBonus:0},
+  {name:'Stefon Diggs',         pos:'WR',team:'BUF',age:32,redraft:62,dynasty:38,rec:82,sfBonus:0},
+  {name:'Mike Evans',           pos:'WR',team:'SF', age:32,redraft:64,dynasty:40,rec:65,sfBonus:0},
+  {name:'Tee Higgins',          pos:'WR',team:'CIN',age:26,redraft:72,dynasty:75,rec:78,sfBonus:0},
+  {name:'Davante Adams',        pos:'WR',team:'LAR',age:33,redraft:58,dynasty:28,rec:80,sfBonus:0},
+  {name:'DeAndre Hopkins',      pos:'WR',team:'TEN',age:33,redraft:52,dynasty:22,rec:75,sfBonus:0},
+  {name:'Garrett Wilson',       pos:'WR',team:'NYJ',age:25,redraft:74,dynasty:80,rec:86,sfBonus:0},
+  {name:'Terry McLaurin',       pos:'WR',team:'WAS',age:29,redraft:68,dynasty:60,rec:72,sfBonus:0},
+  {name:'Zay Flowers',          pos:'WR',team:'BAL',age:24,redraft:70,dynasty:78,rec:82,sfBonus:0},
+  {name:'Courtland Sutton',     pos:'WR',team:'DEN',age:30,redraft:62,dynasty:48,rec:68,sfBonus:0},
+  {name:'Chris Olave',          pos:'WR',team:'NO', age:25,redraft:66,dynasty:72,rec:80,sfBonus:0},
+  {name:'Nico Collins',         pos:'WR',team:'HOU',age:26,redraft:68,dynasty:72,rec:78,sfBonus:0},
+  {name:'Tank Dell',            pos:'WR',team:'HOU',age:25,redraft:62,dynasty:68,rec:82,sfBonus:0},
+  {name:'Brandon Aiyuk',        pos:'WR',team:'SF', age:28,redraft:70,dynasty:65,rec:78,sfBonus:0},
+  {name:'Deebo Samuel',         pos:'WR',team:'SF', age:29,redraft:60,dynasty:52,rec:75,sfBonus:0},
+  {name:'DJ Moore',             pos:'WR',team:'BUF',age:28,redraft:62,dynasty:58,rec:78,sfBonus:0},
+  {name:'Rashee Rice',          pos:'WR',team:'KC', age:24,redraft:66,dynasty:74,rec:82,sfBonus:0},
+  {name:'Christian Kirk',       pos:'WR',team:'JAX',age:28,redraft:55,dynasty:48,rec:80,sfBonus:0},
+  {name:'Marquise Brown',       pos:'WR',team:'KC', age:28,redraft:52,dynasty:48,rec:80,sfBonus:0},
+  {name:'Michael Pittman Jr.',  pos:'WR',team:'PIT',age:28,redraft:58,dynasty:55,rec:75,sfBonus:0},
+  {name:'George Pickens',       pos:'WR',team:'PIT',age:24,redraft:68,dynasty:76,rec:72,sfBonus:0},
+  {name:'Odell Beckham Jr.',    pos:'WR',team:'FA', age:33,redraft:38,dynasty:12,rec:72,sfBonus:0},
+  {name:'JuJu Smith-Schuster',  pos:'WR',team:'FA', age:29,redraft:38,dynasty:28,rec:80,sfBonus:0},
+  {name:'Keenan Allen',         pos:'WR',team:'FA', age:33,redraft:35,dynasty:12,rec:85,sfBonus:0},
+  {name:'Tyler Lockett',        pos:'WR',team:'SEA',age:33,redraft:38,dynasty:15,rec:78,sfBonus:0},
+  {name:'Kadarius Toney',       pos:'WR',team:'FA', age:26,redraft:32,dynasty:38,rec:75,sfBonus:0},
+  {name:'Parris Campbell',      pos:'WR',team:'FA', age:28,redraft:30,dynasty:22,rec:78,sfBonus:0},
+  {name:"Wan'Dale Robinson",   pos:'WR',team:'NYG',age:25,redraft:48,dynasty:56,rec:85,sfBonus:0},
+  {name:'Demario Douglas',      pos:'WR',team:'NE', age:25,redraft:45,dynasty:52,rec:85,sfBonus:0},
+  {name:"Ja'Lynn Polk",        pos:'WR',team:'NE', age:23,redraft:42,dynasty:58,rec:72,sfBonus:0},
+  {name:'Xavier Worthy',        pos:'WR',team:'KC', age:22,redraft:50,dynasty:68,rec:78,sfBonus:0},
+  {name:'Quentin Johnston',     pos:'WR',team:'LAC',age:24,redraft:48,dynasty:62,rec:70,sfBonus:0},
+  {name:'Josh Downs',           pos:'WR',team:'IND',age:23,redraft:52,dynasty:65,rec:88,sfBonus:0},
+  {name:'Rashod Bateman',       pos:'WR',team:'BAL',age:25,redraft:48,dynasty:52,rec:72,sfBonus:0},
+  {name:'Romeo Doubs',          pos:'WR',team:'NE', age:25,redraft:52,dynasty:58,rec:75,sfBonus:0},
+  {name:'Jaylen Johnson',       pos:'WR',team:'CIN',age:23,redraft:45,dynasty:58,rec:75,sfBonus:0},
+  {name:'Tutu Atwell',          pos:'WR',team:'LAR',age:25,redraft:42,dynasty:48,rec:78,sfBonus:0},
+  {name:'Marvin Harrison Jr.',  pos:'WR',team:'ARI',age:23,redraft:65,dynasty:80,rec:75,sfBonus:0},
+  {name:'Rome Odunze',          pos:'WR',team:'CHI',age:23,redraft:58,dynasty:76,rec:80,sfBonus:0},
+  {name:'Ladd McConkey',        pos:'WR',team:'LAC',age:23,redraft:60,dynasty:74,rec:88,sfBonus:0},
+  {name:'Brian Thomas Jr.',     pos:'WR',team:'JAX',age:23,redraft:62,dynasty:78,rec:78,sfBonus:0},
+  {name:'Keon Coleman',         pos:'WR',team:'BUF',age:22,redraft:52,dynasty:70,rec:70,sfBonus:0},
+  {name:'Brenden Rice',         pos:'WR',team:'LAC',age:23,redraft:42,dynasty:55,rec:70,sfBonus:0},
+  {name:'Jermaine Burton',      pos:'WR',team:'CIN',age:24,redraft:38,dynasty:50,rec:72,sfBonus:0},
+  {name:'Javon Baker',          pos:'WR',team:'NE', age:23,redraft:38,dynasty:52,rec:70,sfBonus:0},
+  {name:'Jerry Jeudy',          pos:'WR',team:'CLE',age:26,redraft:52,dynasty:52,rec:78,sfBonus:0},
+  {name:'Elijah Moore',         pos:'WR',team:'CLE',age:25,redraft:44,dynasty:50,rec:82,sfBonus:0},
+  {name:'Diontae Johnson',      pos:'WR',team:'CAR',age:28,redraft:45,dynasty:38,rec:85,sfBonus:0},
+  {name:'Van Jefferson',        pos:'WR',team:'ATL',age:29,redraft:38,dynasty:28,rec:72,sfBonus:0},
+  {name:'Alec Pierce',          pos:'WR',team:'IND',age:25,redraft:46,dynasty:52,rec:68,sfBonus:0},
+  {name:'Dontayvion Wicks',     pos:'WR',team:'GB', age:24,redraft:44,dynasty:55,rec:72,sfBonus:0},
+  {name:'Trey Palmer',          pos:'WR',team:'TB', age:25,redraft:45,dynasty:52,rec:75,sfBonus:0},
+  {name:'Kayshon Boutte',       pos:'WR',team:'NE', age:23,redraft:36,dynasty:48,rec:70,sfBonus:0},
+  {name:'Jalen McMillan',       pos:'WR',team:'TB', age:23,redraft:40,dynasty:55,rec:72,sfBonus:0},
+  {name:'Ray-Ray McCloud',      pos:'WR',team:'SF', age:29,redraft:28,dynasty:15,rec:78,sfBonus:0},
+  {name:'Emmanuel Forbes',      pos:'WR',team:'WAS',age:24,redraft:30,dynasty:40,rec:65,sfBonus:0},
+
+  // ===== TEs =====
+  {name:'Trey McBride',         pos:'TE',team:'ARI',age:24,redraft:89,dynasty:91,rec:80,sfBonus:0},
+  {name:'Brock Bowers',         pos:'TE',team:'LV', age:22,redraft:80,dynasty:86,rec:85,sfBonus:0},
+  {name:'Sam LaPorta',          pos:'TE',team:'DET',age:24,redraft:75,dynasty:80,rec:78,sfBonus:0},
+  {name:'Travis Kelce',         pos:'TE',team:'KC', age:36,redraft:65,dynasty:32,rec:82,sfBonus:0},
+  {name:'Kyle Pitts',           pos:'TE',team:'ATL',age:24,redraft:72,dynasty:82,rec:82,sfBonus:0},
+  {name:'George Kittle',        pos:'TE',team:'SF', age:31,redraft:72,dynasty:55,rec:78,sfBonus:0},
+  {name:'Dallas Goedert',       pos:'TE',team:'PHI',age:29,redraft:68,dynasty:60,rec:80,sfBonus:0},
+  {name:'Mark Andrews',         pos:'TE',team:'BAL',age:30,redraft:62,dynasty:50,rec:80,sfBonus:0},
+  {name:'Jake Ferguson',        pos:'TE',team:'DAL',age:25,redraft:62,dynasty:68,rec:75,sfBonus:0},
+  {name:'Dalton Kincaid',       pos:'TE',team:'BUF',age:25,redraft:58,dynasty:65,rec:80,sfBonus:0},
+  {name:'Cole Kmet',            pos:'TE',team:'CHI',age:26,redraft:55,dynasty:60,rec:72,sfBonus:0},
+  {name:'Tucker Kraft',         pos:'TE',team:'GB', age:24,redraft:52,dynasty:65,rec:72,sfBonus:0},
+  {name:'Chig Okonkwo',         pos:'TE',team:'TEN',age:25,redraft:50,dynasty:60,rec:75,sfBonus:0},
+  {name:'Isaiah Likely',        pos:'TE',team:'BAL',age:25,redraft:52,dynasty:62,rec:80,sfBonus:0},
+  {name:'Cade Otton',           pos:'TE',team:'TB', age:26,redraft:48,dynasty:55,rec:75,sfBonus:0},
+  {name:'Josiah Deguara',       pos:'TE',team:'GB', age:27,redraft:36,dynasty:30,rec:65,sfBonus:0},
+  {name:'Tyler Higbee',         pos:'TE',team:'LAR',age:31,redraft:38,dynasty:25,rec:72,sfBonus:0},
+  {name:'Hunter Henry',         pos:'TE',team:'NE', age:30,redraft:40,dynasty:28,rec:70,sfBonus:0},
+  {name:'Dawson Knox',          pos:'TE',team:'BUF',age:28,redraft:42,dynasty:40,rec:68,sfBonus:0},
+  {name:'T.J. Hockenson',       pos:'TE',team:'MIN',age:27,redraft:52,dynasty:58,rec:80,sfBonus:0},
+  {name:'Mike Gesicki',         pos:'TE',team:'CIN',age:29,redraft:40,dynasty:32,rec:72,sfBonus:0},
+  {name:'Pat Freiermuth',       pos:'TE',team:'PIT',age:26,redraft:46,dynasty:50,rec:70,sfBonus:0},
+  {name:'Colby Parkinson',      pos:'TE',team:'LAR',age:26,redraft:40,dynasty:45,rec:68,sfBonus:0},
+  {name:'Greg Dulcich',         pos:'TE',team:'DEN',age:26,redraft:38,dynasty:45,rec:70,sfBonus:0},
+  {name:'Jelani Woods',         pos:'TE',team:'IND',age:25,redraft:38,dynasty:48,rec:65,sfBonus:0},
+  // ===== 2026 ROOKIES (pre-draft, landing TBD) =====
+  {name:'Jeremiyah Love',       pos:'RB',team:'TBD',age:21,redraft:72,dynasty:92,rec:72,sfBonus:0},
+  {name:'Fernando Mendoza',     pos:'QB',team:'LV', age:22,redraft:40,dynasty:82,rec:14,sfBonus:18},
+  {name:'Carnell Tate',         pos:'WR',team:'TBD',age:21,redraft:58,dynasty:88,rec:80,sfBonus:0},
+  {name:'Jordyn Tyson',         pos:'WR',team:'TBD',age:21,redraft:55,dynasty:84,rec:78,sfBonus:0},
+  {name:'Makai Lemon',          pos:'WR',team:'TBD',age:21,redraft:52,dynasty:82,rec:85,sfBonus:0},
+  {name:'Jadarian Price',       pos:'RB',team:'TBD',age:21,redraft:50,dynasty:72,rec:50,sfBonus:0},
+  {name:'Kenyon Sadiq',         pos:'TE',team:'TBD',age:21,redraft:48,dynasty:76,rec:78,sfBonus:0},
+  {name:'Denzel Boston',        pos:'WR',team:'TBD',age:21,redraft:45,dynasty:74,rec:72,sfBonus:0},
+  {name:'Omar Cooper Jr.',      pos:'WR',team:'TBD',age:21,redraft:44,dynasty:70,rec:76,sfBonus:0},
+  {name:'K.C. Concepcion',      pos:'WR',team:'TBD',age:21,redraft:42,dynasty:68,rec:78,sfBonus:0},
+  {name:'Nicholas Singleton',   pos:'RB',team:'TBD',age:22,redraft:45,dynasty:68,rec:55,sfBonus:0},
+  {name:'Ty Simpson',           pos:'QB',team:'TBD',age:22,redraft:28,dynasty:60,rec:18,sfBonus:12},
+  {name:'Colston Loveland',     pos:'TE',team:'TBD',age:22,redraft:42,dynasty:68,rec:72,sfBonus:0},
+  {name:'Kaytron Allen',        pos:'RB',team:'TBD',age:23,redraft:38,dynasty:55,rec:40,sfBonus:0},
+  {name:'Emmett Johnson',       pos:'RB',team:'TBD',age:22,redraft:36,dynasty:58,rec:52,sfBonus:0},
+  {name:'Mike Washington Jr.',  pos:'RB',team:'TBD',age:22,redraft:35,dynasty:55,rec:48,sfBonus:0},
+  {name:'Chris Brazzell II',    pos:'WR',team:'TBD',age:22,redraft:35,dynasty:58,rec:70,sfBonus:0},
+  {name:'Zachariah Branch',     pos:'WR',team:'TBD',age:21,redraft:34,dynasty:58,rec:82,sfBonus:0},
+  {name:'Garrett Nussmeier',    pos:'QB',team:'TBD',age:23,redraft:25,dynasty:52,rec:12,sfBonus:10},
+  {name:'Ashton Jeanty',        pos:'RB',team:'TBD',age:21,redraft:55,dynasty:78,rec:45,sfBonus:0},
+
+  // ===== ADDITIONAL CURRENT NFL PLAYERS (2026 updated) =====
+  // QBs
+  {name:'Justin Fields',        pos:'QB',team:'KC', age:27,redraft:55,dynasty:68,rec:28,sfBonus:13},
+  {name:'Daniel Jones',         pos:'QB',team:'IND',age:29,redraft:58,dynasty:60,rec:15,sfBonus:12},
+  {name:'Aaron Rodgers',        pos:'QB',team:'PIT',age:42,redraft:52,dynasty:10,rec:10,sfBonus:10},
+  {name:'Jacoby Brissett',      pos:'QB',team:'WAS',age:32,redraft:35,dynasty:12,rec:8, sfBonus:8},
+  {name:'Kyle Allen',           pos:'QB',team:'BUF',age:30,redraft:30,dynasty:10,rec:8, sfBonus:7},
+  {name:'Joe Flacco',           pos:'QB',team:'FA', age:41,redraft:25,dynasty:5, rec:8, sfBonus:6},
+  {name:'Gardner Minshew',      pos:'QB',team:'FA', age:29,redraft:35,dynasty:28,rec:14,sfBonus:9},
+  {name:"Aidan O'Connell",     pos:'QB',team:'LV', age:27,redraft:40,dynasty:38,rec:12,sfBonus:9},
+  {name:'Bailey Zappe',         pos:'QB',team:'NE', age:26,redraft:30,dynasty:32,rec:10,sfBonus:8},
+  {name:'Mason Rudolph',        pos:'QB',team:'PIT',age:29,redraft:32,dynasty:25,rec:10,sfBonus:8},
+  {name:'Kenny Pickett',        pos:'QB',team:'PHI',age:27,redraft:40,dynasty:42,rec:12,sfBonus:9},
+  {name:'Marcus Mariota',       pos:'QB',team:'FA', age:32,redraft:28,dynasty:12,rec:18,sfBonus:7},
+  {name:'Dorian Thompson-Robinson', pos:'QB',team:'CLE',age:25,redraft:35,dynasty:45,rec:15,sfBonus:9},
+  {name:'Hendon Hooker',        pos:'QB',team:'DET',age:27,redraft:30,dynasty:40,rec:12,sfBonus:8},
+  {name:'Tommy DeVito',         pos:'QB',team:'NYG',age:26,redraft:32,dynasty:35,rec:10,sfBonus:8},
+  {name:'Spencer Rattler',      pos:'QB',team:'NO', age:25,redraft:38,dynasty:48,rec:14,sfBonus:10},
+  {name:'Shedeur Sanders',      pos:'QB',team:'TBD',age:23,redraft:35,dynasty:72,rec:14,sfBonus:14},
+  {name:'Cam Ward',             pos:'QB',team:'TBD',age:23,redraft:30,dynasty:68,rec:16,sfBonus:13},
+  // RBs - additional
+  {name:'Aaron Jones',          pos:'RB',team:'MIN',age:31,redraft:42,dynasty:30,rec:55,sfBonus:0},
+  {name:'Joe Mixon',            pos:'RB',team:'FA', age:29,redraft:40,dynasty:35,rec:55,sfBonus:0},
+  {name:'Keaton Mitchell',      pos:'RB',team:'LAC',age:24,redraft:58,dynasty:68,rec:55,sfBonus:0},
+  {name:'Jaylen Warren',        pos:'RB',team:'PIT',age:26,redraft:45,dynasty:50,rec:60,sfBonus:0},
+  {name:'Damien Harris',        pos:'RB',team:'FA', age:29,redraft:28,dynasty:18,rec:32,sfBonus:0},
+  {name:'Ty Montgomery',        pos:'RB',team:'FA', age:32,redraft:22,dynasty:8, rec:58,sfBonus:0},
+  {name:'Elijah Higgins',       pos:'RB',team:'CIN',age:24,redraft:30,dynasty:40,rec:65,sfBonus:0},
+  {name:'Sean Tucker',          pos:'RB',team:'TB', age:24,redraft:35,dynasty:48,rec:58,sfBonus:0},
+  {name:'Clyde Edwards-Helaire', pos:'RB',team:'FA',age:26,redraft:30,dynasty:32,rec:62,sfBonus:0},
+  {name:'Rachaad White',        pos:'RB',team:'TB', age:26,redraft:62,dynasty:60,rec:80,sfBonus:0},
+  {name:'Patrick Taylor',       pos:'RB',team:'DET',age:27,redraft:28,dynasty:22,rec:30,sfBonus:0},
+  {name:'Dare Ogunbowale',      pos:'RB',team:'FA', age:30,redraft:20,dynasty:10,rec:70,sfBonus:0},
+  {name:'Hassan Haskins',       pos:'RB',team:'TEN',age:26,redraft:30,dynasty:32,rec:28,sfBonus:0},
+  {name:'Zamir White',          pos:'RB',team:'LV', age:25,redraft:35,dynasty:42,rec:40,sfBonus:0},
+  {name:'Khalil Herbert',       pos:'RB',team:'CHI',age:26,redraft:38,dynasty:40,rec:42,sfBonus:0},
+  {name:'Ty Johnson',           pos:'RB',team:'FA', age:28,redraft:22,dynasty:15,rec:65,sfBonus:0},
+  {name:'Marlon Mack',          pos:'RB',team:'FA', age:30,redraft:20,dynasty:10,rec:35,sfBonus:0},
+  {name:'Craig Reynolds',       pos:'RB',team:'DET',age:28,redraft:25,dynasty:18,rec:32,sfBonus:0},
+  {name:'Jamaal Williams',      pos:'RB',team:'FA', age:29,redraft:22,dynasty:14,rec:38,sfBonus:0},
+  {name:"D'Ernest Johnson",    pos:'RB',team:'FA', age:29,redraft:20,dynasty:12,rec:45,sfBonus:0},
+  {name:'Mike Boone',           pos:'RB',team:'DEN',age:29,redraft:18,dynasty:10,rec:38,sfBonus:0},
+  {name:'Josh Jacobs',          pos:'RB',team:'GB', age:27,redraft:60,dynasty:55,rec:55,sfBonus:0},
+  {name:'Tony Jones Jr.',       pos:'RB',team:'NO', age:27,redraft:28,dynasty:25,rec:45,sfBonus:0},
+  {name:'Chris Evans',          pos:'RB',team:'CIN',age:27,redraft:22,dynasty:20,rec:50,sfBonus:0},
+  {name:'Deon Jackson',         pos:'RB',team:'IND',age:27,redraft:25,dynasty:22,rec:68,sfBonus:0},
+  {name:'Matt Breida',          pos:'RB',team:'FA', age:29,redraft:18,dynasty:10,rec:40,sfBonus:0},
+  // WRs - additional
+  {name:'A.J. Brown',           pos:'WR',team:'PHI',age:28,redraft:78,dynasty:72,rec:80,sfBonus:0},
+  {name:'Marquise Brown',       pos:'WR',team:'PHI',age:28,redraft:55,dynasty:48,rec:82,sfBonus:0},
+  {name:'Darnell Mooney',       pos:'WR',team:'NYG',age:28,redraft:50,dynasty:44,rec:80,sfBonus:0},
+  {name:'Rashid Shaheed',       pos:'WR',team:'SEA',age:26,redraft:52,dynasty:58,rec:78,sfBonus:0},
+  {name:'Kadarius Toney',       pos:'WR',team:'FA', age:26,redraft:22,dynasty:30,rec:75,sfBonus:0},
+  {name:'Adam Thielen',         pos:'WR',team:'FA', age:36,redraft:22,dynasty:5, rec:72,sfBonus:0},
+  {name:'Trenton Irwin',        pos:'WR',team:'CIN',age:29,redraft:25,dynasty:15,rec:70,sfBonus:0},
+  {name:'Donovan Peoples-Jones',pos:'WR',team:'DAL',age:26,redraft:42,dynasty:45,rec:70,sfBonus:0},
+  {name:'Mecole Hardman',       pos:'WR',team:'KC', age:27,redraft:38,dynasty:35,rec:80,sfBonus:0},
+  {name:'Kendrick Bourne',      pos:'WR',team:'FA', age:29,redraft:28,dynasty:20,rec:75,sfBonus:0},
+  {name:'Ben Skowronek',        pos:'WR',team:'LAR',age:28,redraft:25,dynasty:18,rec:65,sfBonus:0},
+  {name:'Phillip Dorsett',      pos:'WR',team:'FA', age:33,redraft:15,dynasty:5, rec:78,sfBonus:0},
+  {name:'Amari Cooper',         pos:'WR',team:'BUF',age:32,redraft:52,dynasty:28,rec:72,sfBonus:0},
+  {name:'Skyy Moore',           pos:'WR',team:'KC', age:25,redraft:35,dynasty:45,rec:72,sfBonus:0},
+  {name:'Jalen Reagor',         pos:'WR',team:'FA', age:27,redraft:18,dynasty:18,rec:75,sfBonus:0},
+  {name:'Tyler Boyd',           pos:'WR',team:'TEN',age:30,redraft:40,dynasty:28,rec:82,sfBonus:0},
+  {name:"Wan'Dale Robinson",   pos:'WR',team:'NYJ',age:25,redraft:52,dynasty:60,rec:88,sfBonus:0},
+  {name:'Velus Jones Jr.',      pos:'WR',team:'CHI',age:28,redraft:25,dynasty:22,rec:70,sfBonus:0},
+  {name:'Phillip Dorsett II',   pos:'WR',team:'FA', age:33,redraft:12,dynasty:5, rec:78,sfBonus:0},
+  {name:'Isaiah McKenzie',      pos:'WR',team:'FA', age:30,redraft:18,dynasty:10,rec:80,sfBonus:0},
+  {name:'Cedrick Wilson Jr.',   pos:'WR',team:'FA', age:29,redraft:18,dynasty:12,rec:65,sfBonus:0},
+  {name:'Noah Brown',           pos:'WR',team:'HOU',age:29,redraft:25,dynasty:18,rec:58,sfBonus:0},
+  {name:'Marquez Valdes-Scantling', pos:'WR',team:'FA',age:30,redraft:28,dynasty:15,rec:60,sfBonus:0},
+  {name:'Josh Reynolds',        pos:'WR',team:'DEN',age:30,redraft:30,dynasty:18,rec:68,sfBonus:0},
+  {name:'Devin Duvernay',       pos:'WR',team:'JAX',age:27,redraft:28,dynasty:28,rec:75,sfBonus:0},
+  {name:'Nelson Agholor',       pos:'WR',team:'FA', age:33,redraft:18,dynasty:5, rec:72,sfBonus:0},
+  {name:'Darius Slayton',       pos:'WR',team:'NYG',age:28,redraft:35,dynasty:28,rec:65,sfBonus:0},
+  {name:'KJ Hamler',            pos:'WR',team:'FA', age:27,redraft:20,dynasty:22,rec:80,sfBonus:0},
+  {name:'Quez Watkins',         pos:'WR',team:'FA', age:28,redraft:18,dynasty:15,rec:80,sfBonus:0},
+  {name:'Albert Wilson',        pos:'WR',team:'FA', age:33,redraft:12,dynasty:5, rec:78,sfBonus:0},
+  {name:'Jalen Nailor',         pos:'WR',team:'MIN',age:25,redraft:32,dynasty:40,rec:78,sfBonus:0},
+  {name:'Tyquan Thornton',      pos:'WR',team:'NE', age:25,redraft:28,dynasty:35,rec:80,sfBonus:0},
+  {name:'Kalif Raymond',        pos:'WR',team:'DET',age:30,redraft:22,dynasty:12,rec:75,sfBonus:0},
+  {name:'D.J. Turner',          pos:'WR',team:'CHI',age:25,redraft:28,dynasty:38,rec:72,sfBonus:0},
+  // TEs - additional
+  {name:'Noah Fant',            pos:'TE',team:'NO', age:27,redraft:48,dynasty:52,rec:72,sfBonus:0},
+  {name:'Evan Engram',          pos:'TE',team:'JAX',age:30,redraft:50,dynasty:40,rec:82,sfBonus:0},
+  {name:'Adam Trautman',        pos:'TE',team:'DEN',age:27,redraft:35,dynasty:38,rec:62,sfBonus:0},
+  {name:'David Njoku',          pos:'TE',team:'CLE',age:29,redraft:55,dynasty:50,rec:72,sfBonus:0},
+  {name:'Austin Hooper',        pos:'TE',team:'FA', age:31,redraft:22,dynasty:12,rec:65,sfBonus:0},
+  {name:'Logan Thomas',         pos:'TE',team:'FA', age:34,redraft:15,dynasty:5, rec:60,sfBonus:0},
+  {name:'Irv Smith Jr.',        pos:'TE',team:'FA', age:28,redraft:28,dynasty:28,rec:68,sfBonus:0},
+  {name:'Luke Musgrave',        pos:'TE',team:'GB', age:25,redraft:42,dynasty:55,rec:72,sfBonus:0},
+  {name:'Payne Durham',         pos:'TE',team:'TB', age:25,redraft:30,dynasty:38,rec:60,sfBonus:0},
+  {name:'Trey McBride',         pos:'TE',team:'ARI',age:24,redraft:89,dynasty:91,rec:80,sfBonus:0},
+  {name:'Harrison Bryant',      pos:'TE',team:'FA', age:28,redraft:18,dynasty:15,rec:58,sfBonus:0},
+  {name:'Zach Ertz',            pos:'TE',team:'FA', age:35,redraft:25,dynasty:8, rec:70,sfBonus:0},
+  {name:'Mo Alie-Cox',          pos:'TE',team:'IND',age:31,redraft:18,dynasty:10,rec:45,sfBonus:0},
+  {name:'Tommy Tremble',        pos:'TE',team:'CAR',age:25,redraft:22,dynasty:28,rec:50,sfBonus:0},
+  {name:'Pharaoh Brown',        pos:'TE',team:'FA', age:30,redraft:15,dynasty:8, rec:45,sfBonus:0},
+  {name:'Geoff Swaim',          pos:'TE',team:'FA', age:32,redraft:10,dynasty:5, rec:45,sfBonus:0},
+  {name:'Ryan Griffin',         pos:'TE',team:'FA', age:35,redraft:10,dynasty:5, rec:50,sfBonus:0},
+  {name:'Connor Heyward',       pos:'TE',team:'PIT',age:32,redraft:15,dynasty:8, rec:60,sfBonus:0},
+  {name:'Durham Smythe',        pos:'TE',team:'FA', age:30,redraft:10,dynasty:8, rec:40,sfBonus:0},
+  {name:'Ian Thomas',           pos:'TE',team:'CAR',age:28,redraft:18,dynasty:15,rec:50,sfBonus:0},
+  {name:'Chris Manhertz',       pos:'TE',team:'CAR',age:32,redraft:12,dynasty:6, rec:35,sfBonus:0},
+
+    // ===== DYNASTY DRAFT PICKS 1.01 - 3.12 =====
+  // Picks are treated as assets with dynasty value only; redraft=0
+  {name:'2026 Pick 1.01',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:92,rec:0,sfBonus:0},
+  {name:'2026 Pick 1.02',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:85,rec:0,sfBonus:0},
+  {name:'2026 Pick 1.03',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:78,rec:0,sfBonus:0},
+  {name:'2026 Pick 1.04',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:72,rec:0,sfBonus:0},
+  {name:'2026 Pick 1.05',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:66,rec:0,sfBonus:0},
+  {name:'2026 Pick 1.06',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:62,rec:0,sfBonus:0},
+  {name:'2026 Pick 1.07',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:58,rec:0,sfBonus:0},
+  {name:'2026 Pick 1.08',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:54,rec:0,sfBonus:0},
+  {name:'2026 Pick 1.09',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:50,rec:0,sfBonus:0},
+  {name:'2026 Pick 1.10',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:46,rec:0,sfBonus:0},
+  {name:'2026 Pick 1.11',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:42,rec:0,sfBonus:0},
+  {name:'2026 Pick 1.12',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:38,rec:0,sfBonus:0},
+  {name:'2026 Pick 2.01',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:35,rec:0,sfBonus:0},
+  {name:'2026 Pick 2.02',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:33,rec:0,sfBonus:0},
+  {name:'2026 Pick 2.03',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:31,rec:0,sfBonus:0},
+  {name:'2026 Pick 2.04',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:29,rec:0,sfBonus:0},
+  {name:'2026 Pick 2.05',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:28,rec:0,sfBonus:0},
+  {name:'2026 Pick 2.06',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:26,rec:0,sfBonus:0},
+  {name:'2026 Pick 2.07',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:25,rec:0,sfBonus:0},
+  {name:'2026 Pick 2.08',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:23,rec:0,sfBonus:0},
+  {name:'2026 Pick 2.09',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:22,rec:0,sfBonus:0},
+  {name:'2026 Pick 2.10',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:20,rec:0,sfBonus:0},
+  {name:'2026 Pick 2.11',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:19,rec:0,sfBonus:0},
+  {name:'2026 Pick 2.12',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:18,rec:0,sfBonus:0},
+  {name:'2026 Pick 3.01',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:16,rec:0,sfBonus:0},
+  {name:'2026 Pick 3.02',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:15,rec:0,sfBonus:0},
+  {name:'2026 Pick 3.03',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:14,rec:0,sfBonus:0},
+  {name:'2026 Pick 3.04',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:13,rec:0,sfBonus:0},
+  {name:'2026 Pick 3.05',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:12,rec:0,sfBonus:0},
+  {name:'2026 Pick 3.06',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:11,rec:0,sfBonus:0},
+  {name:'2026 Pick 3.07',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:10,rec:0,sfBonus:0},
+  {name:'2026 Pick 3.08',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:9, rec:0,sfBonus:0},
+  {name:'2026 Pick 3.09',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:8, rec:0,sfBonus:0},
+  {name:'2026 Pick 3.10',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:7, rec:0,sfBonus:0},
+  {name:'2026 Pick 3.11',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:6, rec:0,sfBonus:0},
+  {name:'2026 Pick 3.12',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:5, rec:0,sfBonus:0},
+
+  // ===== FUTURE PICKS (2027) =====
+  {name:'2027 Pick 1st (Early)',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:52,rec:0,sfBonus:0},
+  {name:'2027 Pick 1st (Mid)',    pos:'PICK',team:'—',age:0,redraft:0,dynasty:40,rec:0,sfBonus:0},
+  {name:'2027 Pick 1st (Late)',   pos:'PICK',team:'—',age:0,redraft:0,dynasty:30,rec:0,sfBonus:0},
+  {name:'2027 Pick 2nd (Early)',  pos:'PICK',team:'—',age:0,redraft:0,dynasty:22,rec:0,sfBonus:0},
+  {name:'2027 Pick 2nd (Mid)',    pos:'PICK',team:'—',age:0,redraft:0,dynasty:16,rec:0,sfBonus:0},
+  {name:'2027 Pick 2nd (Late)',   pos:'PICK',team:'—',age:0,redraft:0,dynasty:12,rec:0,sfBonus:0},
+  {name:'2027 Pick 3rd',          pos:'PICK',team:'—',age:0,redraft:0,dynasty:8, rec:0,sfBonus:0},
+];
+
+// League settings state
+let leagueSettings = { league:'redraft', scoring:'ppr', qb:'1qb', tep:'none' };
+let giveList = [];
+let receiveList = [];
+
+function setSeg(btn, group, val) {
+  document.querySelectorAll('#seg-' + group + ' .tc-seg-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  leagueSettings[group] = val;
+  updateSettingsNote();
+  renderTrade();
+}
+
+function updateSettingsNote() {
+  const s = leagueSettings;
+  const parts = [
+    s.league === 'dynasty' ? 'Dynasty' : 'Redraft',
+    s.scoring === 'ppr' ? 'PPR' : s.scoring === 'half' ? 'Half PPR' : 'Standard',
+    s.qb === 'sflex' ? 'SuperFlex' : '1 QB',
+    s.tep === 'tep' ? 'TE Premium' : 'No TEP'
+  ];
+  document.getElementById('tc-settings-note').textContent = '📋 ' + parts.join(' · ');
+}
+
+function calcPlayerValue(p) {
+  const s = leagueSettings;
+  // Draft picks: dynasty value only, no format multipliers
+  if (p.pos === 'PICK') {
+    return s.league === 'dynasty' ? p.dynasty : 0;
   }
-};
+  // Base: dynasty or redraft
+  let base = s.league === 'dynasty' ? p.dynasty : p.redraft;
 
-async function fetchTeamRoster(abbr, teamId, offPositions) {
-  const url = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/${teamId}/roster`;
-  const res  = await fetch(url);
-  if (!res.ok) return [];
-  const data = await res.json();
+  // PPR adjustment: boosts pass-catchers
+  if (s.scoring === 'ppr') {
+    const recBonus = (p.rec / 100) * 8;
+    base = Math.min(99, base + recBonus);
+  } else if (s.scoring === 'half') {
+    const recBonus = (p.rec / 100) * 4;
+    base = Math.min(99, base + recBonus);
+  } else {
+    // Standard: slight penalty for pure pass-catchers, boost for rushers
+    if (p.pos === 'WR' || p.pos === 'TE') base = Math.max(base - 3, 10);
+    if (p.pos === 'RB' && p.rec < 50) base = Math.min(base + 3, 99);
+  }
 
-  const players = [];
-  (data.athletes || []).forEach(group => {
-    (group.items || []).forEach(athlete => {
-      const pos = athlete.position && athlete.position.abbreviation;
-      if (!offPositions.has(pos)) return;
+  // SuperFlex: significant QB boost
+  if (s.qb === 'sflex' && p.pos === 'QB') {
+    base = Math.min(99, base + p.sfBonus);
+  }
 
-      const injury = athlete.injuries && athlete.injuries[0];
-      players.push({
-        name:   athlete.fullName || '',
-        pos,
-        team:   abbr,
-        age:    athlete.age || null,
-        jersey: athlete.jersey || null,
-        status: injury
-          ? (injury.status || injury.type && injury.type.description || 'Injured')
-          : 'Active',
-        espnId: athlete.id
-      });
+  // TE Premium: boosts elite TEs
+  if (s.tep === 'tep' && p.pos === 'TE') {
+    base = Math.min(99, base + 10);
+  }
+
+  // Dynasty age penalty for older players
+  if (s.league === 'dynasty') {
+    if (p.age >= 30) base = Math.max(base - 15, 10);
+    else if (p.age >= 28) base = Math.max(base - 6, 10);
+    else if (p.age <= 23) base = Math.min(base + 4, 99);
+  }
+
+  return Math.round(base);
+}
+
+function showSuggestions(input, side) {
+  const q = input.value.toLowerCase().trim();
+  const sugBox = document.getElementById(side + '-suggestions');
+  if (q.length < 2) { sugBox.classList.remove('show'); return; }
+  const results = playerDB
+    .filter(p => {
+      if (!p.name.toLowerCase().includes(q)) return false;
+      if (giveList.find(g=>g.name===p.name) || receiveList.find(r=>r.name===p.name)) return false;
+      // Hide picks and 0-value players in redraft mode
+      if (leagueSettings.league === 'redraft' && p.pos === 'PICK') return false;
+      return true;
+    })
+    .sort((a,b) => calcPlayerValue(b) - calcPlayerValue(a))
+    .slice(0, 8);
+  if (!results.length) { sugBox.classList.remove('show'); return; }
+  sugBox.innerHTML = results.map(p => {
+    const val = calcPlayerValue(p);
+    const infoLine = p.pos === 'PICK' ? 'Dynasty Pick' : p.pos+' · '+p.team+(p.age ? ' · Age '+p.age : '');
+    const valDisplay = val > 0 ? val : '<span style="color:var(--muted);font-size:11px">Dynasty only</span>';
+    const safeName = p.name.replace(/'/g, "&#39;");
+    return `<div class="tc-sug-item" data-side="${side}" data-name="${safeName}" style="cursor:pointer">` +
+      `<div><div class="tc-sug-name">${p.name}</div>` +
+      `<div class="tc-sug-info">${infoLine}</div></div>` +
+      `<div class="tc-sug-val">${valDisplay}</div></div>`;
+  }).join('');
+  // Attach click handlers after render
+  sugBox.querySelectorAll('.tc-sug-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const name = el.dataset.name.replace(/&#39;/g, "'");
+      addPlayerToSide(el.dataset.side, name);
     });
   });
-  return players;
+  sugBox.classList.add('show');
 }
+
+function addPlayerToSide(side, name) {
+  const p = playerDB.find(x => x.name === name);
+  if (!p) return;
+  if (side === 'give') giveList.push(p);
+  else receiveList.push(p);
+  document.getElementById(side + '-search').value = '';
+  document.getElementById(side + '-suggestions').classList.remove('show');
+  renderTrade();
+}
+
+function removeTradePlayer(side, idx) {
+  if (side === 'give') giveList.splice(idx, 1);
+  else receiveList.splice(idx, 1);
+  renderTrade();
+}
+
+// Close suggestions on outside click
+document.addEventListener('click', e => {
+  if (!e.target.closest('.tc-search-wrap')) {
+    document.querySelectorAll('.tc-suggestions').forEach(s => s.classList.remove('show'));
+  }
+});
+
+let curPos='ALL',curSearch='',curNews='all',curIDP='ALL';
+
+const pc=p=>'pos-'+p.toLowerCase();
+
+// renderHomeCards removed — home page now uses articles
+
+function renderRedraft(){
+  const f=redraft.filter(p=>(curPos==='ALL'||p.pos===curPos)&&p.name.toLowerCase().includes(curSearch.toLowerCase()));
+  document.getElementById('rankings-body').innerHTML=f.map(p=>`
+    <div class="rt-row rt-std">
+      <div class="rt-rank">${p.rank}</div>
+      <div><div class="rt-name">${p.name}</div><div class="rt-info"><span class="card-pos ${pc(p.pos)}" style="padding:2px 6px;font-size:9px">${p.pos}</span>${p.team}</div></div>
+      <div class="rt-val">${p.proj}</div>
+      <div class="rt-val">${p.adp}</div>
+      <div class="rt-val">${p.age}</div>
+      <div class="rt-change ${p.trend==='up'?'trend-up':'trend-dn'}">${p.trend==='up'?'▲':'▼'} ${p.delta}</div>
+    </div>`).join('');
+}
+
+function renderDynasty(){
+  document.getElementById('dynasty-body').innerHTML=dynasty.map(p=>`
+    <div class="rt-row rt-std">
+      <div class="rt-rank">${p.rank}</div>
+      <div><div class="rt-name">${p.name}</div><div class="rt-info"><span class="card-pos ${pc(p.pos)}" style="padding:2px 6px;font-size:9px">${p.pos}</span></div></div>
+      <div class="rt-val">${p.age}</div>
+      <div class="rt-val">${p.team}</div>
+      <div class="rt-val" style="color:var(--accent)">${p.value}</div>
+      <div class="rt-val" style="font-size:11px;color:var(--muted)">${p.tier}</div>
+    </div>`).join('');
+}
+
+function renderRookies(){
+  document.getElementById('rookie-body').innerHTML=rookies.map(r=>`
+    <div class="rt-row rt-rook">
+      <div class="rt-rank" style="font-size:14px;color:var(--accent)">${r.pick}</div>
+      <div class="rt-name">${r.name}</div>
+      <div><span class="card-pos ${pc(r.pos)}" style="padding:2px 7px;font-size:9px">${r.pos}</span></div>
+      <div class="rt-val" style="font-size:12px;color:var(--muted)">${r.college}</div>
+      <div class="rt-val" style="font-size:11px">${r.draftProj}</div>
+      <div class="rt-val" style="color:var(--accent);font-family:'Bebas Neue',sans-serif;font-size:18px">${r.ffVal}</div>
+    </div>`).join('');
+}
+
+function renderIDP(){
+  const f=idpData.filter(p=>curIDP==='ALL'||p.pos===curIDP);
+  document.getElementById('idp-body').innerHTML=f.map(p=>`
+    <div class="rt-row rt-idp">
+      <div class="rt-rank">${p.rank}</div>
+      <div><div class="rt-name">${p.name}</div><div style="font-size:11px;color:var(--muted)">${p.tier}</div></div>
+      <div><span class="card-pos ${pc(p.pos)}" style="padding:2px 7px;font-size:9px">${p.pos}</span></div>
+      <div class="rt-val">${p.team}</div>
+      <div class="rt-val">${p.tkl}</div>
+      <div class="rt-val">${p.sacks}</div>
+      <div class="rt-val" style="color:var(--accent);font-family:'Bebas Neue',sans-serif;font-size:20px">${p.score}</div>
+    </div>`).join('');
+}
+
+function renderNews(){
+  const f=newsItems.filter(n=>curNews==='all'||n.tag===curNews);
+  document.getElementById('news-feed').innerHTML=f.map(n=>`
+    <div class="news-item">
+      <span class="news-tag tag-${n.tag}">${n.label}</span>
+      <div class="news-headline">${n.headline}</div>
+      <div class="news-meta"><span>${n.time}</span><span>${n.source}</span></div>
+    </div>`).join('');
+  document.getElementById('risers-list').innerHTML=risers.map((r,i)=>`
+    <div class="trending-item">
+      <div class="t-rank">${i+1}</div>
+      <div><div class="t-name">${r.name}</div><div class="t-note" style="color:var(--accent)">▲ ${r.note}</div></div>
+    </div>`).join('');
+  document.getElementById('fallers-list').innerHTML=fallers.map((r,i)=>`
+    <div class="trending-item">
+      <div class="t-rank">${i+1}</div>
+      <div><div class="t-name">${r.name}</div><div class="t-note" style="color:var(--accent2)">▼ ${r.note}</div></div>
+    </div>`).join('');
+}
+
+function renderTrade(){
+  // Render give list
+  document.getElementById('give-list').innerHTML = giveList.map((p,i) => {
+    const val = calcPlayerValue(p);
+    const posTag = p.pos === 'QB' && leagueSettings.qb === 'sflex' ? '<span class="tc-tag tc-tag-up">SF+</span>' :
+                   p.pos === 'TE' && leagueSettings.tep === 'tep' ? '<span class="tc-tag tc-tag-up">TEP+</span>' : '';
+    return `<div class="trade-player-item" onclick="removeTradePlayer('give',${i})">
+      <div><div class="tname">${p.name}${posTag}</div><div class="thint">${p.pos} · ${p.team} · Age ${p.age} · click to remove</div></div>
+      <div class="tval">${val}</div></div>`;
+  }).join('') || '<div style="color:var(--muted);font-size:13px;padding:8px 0">No players added yet</div>';
+
+  // Render receive list
+  document.getElementById('receive-list').innerHTML = receiveList.map((p,i) => {
+    const val = calcPlayerValue(p);
+    const posTag = p.pos === 'QB' && leagueSettings.qb === 'sflex' ? '<span class="tc-tag tc-tag-up">SF+</span>' :
+                   p.pos === 'TE' && leagueSettings.tep === 'tep' ? '<span class="tc-tag tc-tag-up">TEP+</span>' : '';
+    return `<div class="trade-player-item" onclick="removeTradePlayer('receive',${i})">
+      <div><div class="tname">${p.name}${posTag}</div><div class="thint">${p.pos} · ${p.team} · Age ${p.age} · click to remove</div></div>
+      <div class="tval">${val}</div></div>`;
+  }).join('') || '<div style="color:var(--muted);font-size:13px;padding:8px 0">No players added yet</div>';
+
+  if (!giveList.length && !receiveList.length) {
+    document.getElementById('trade-result').innerHTML = '';
+    return;
+  }
+
+  const gTotal = giveList.reduce((a,p) => a + calcPlayerValue(p), 0);
+  const rTotal = receiveList.reduce((a,p) => a + calcPlayerValue(p), 0);
+  const diff = rTotal - gTotal;
+  const pct = gTotal + rTotal > 0 ? Math.round(gTotal / (gTotal + rTotal) * 100) : 50;
+
+  const vc = diff > 8 ? 'var(--accent)' : diff < -8 ? 'var(--accent2)' : 'var(--gold)';
+  const vt = diff > 8 ? 'You Win This Trade' : diff < -8 ? 'You Lose This Trade' : 'Fair Trade';
+  const vi = diff > 8 ? '✅' : diff < -8 ? '🚫' : '🤝';
+  const vd = diff > 8 ? 'You are getting more value. Good deal — consider accepting.'
+           : diff < -8 ? 'You are giving up more value. Negotiate or decline.'
+           : 'Roughly equal value on both sides. Context-dependent call.';
+
+  // Setting impact notes
+  const notes = [];
+  if (leagueSettings.league === 'dynasty') notes.push('Dynasty: younger players boosted, veterans discounted');
+  if (leagueSettings.scoring === 'ppr') notes.push('PPR: pass-catchers (WR/TE/receiving RBs) valued higher');
+  if (leagueSettings.scoring === 'std') notes.push('Standard: rushing production weighted over receptions');
+  if (leagueSettings.qb === 'sflex') notes.push('SuperFlex: QB values significantly increased due to scarcity');
+  if (leagueSettings.tep === 'tep') notes.push('TE Premium: elite TEs carry elevated value');
+
+  document.getElementById('trade-result').innerHTML = `
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px">
+      <div style="font-size:40px">${vi}</div>
+      <div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:30px;letter-spacing:1px;color:${vc}">${vt}</div>
+        <div style="color:var(--muted);font-size:13px;margin-top:2px">${vd}</div>
+      </div>
+      <div style="margin-left:auto;text-align:right">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;font-weight:800">Value Diff</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:44px;color:${vc};letter-spacing:1px">${diff >= 0 ? '+' : ''}${diff}</div>
+      </div>
+    </div>
+    <div style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;margin-bottom:6px;color:var(--muted)">
+        <span>You Give <span style="color:var(--text);font-size:16px;font-family:'Bebas Neue',sans-serif">${gTotal}</span></span>
+        <span>You Receive <span style="color:var(--text);font-size:16px;font-family:'Bebas Neue',sans-serif">${rTotal}</span></span>
+      </div>
+      <div class="trade-bar-track"><div class="trade-bar-fill" style="width:${pct}%"></div></div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:6px;font-weight:600"><span>← Your Side</span><span>Their Side →</span></div>
+    </div>
+    ${notes.length ? `<div style="border-top:1px solid var(--border);padding-top:14px;display:flex;flex-wrap:wrap;gap:8px">${notes.map(n=>`<span style="font-size:11px;color:var(--muted);background:var(--surface2);padding:4px 10px;border-radius:20px;border:1px solid var(--border)">ℹ️ ${n}</span>`).join('')}</div>` : ''}`;
+}
+
+function renderChat(){
+  const el=document.getElementById('chat-messages');
+  el.innerHTML=chats.map(m=>`
+    <div class="chat-msg ${m.self?'chat-self':''}">
+      <div class="chat-avatar">${m.init}</div>
+      <div>
+        <div class="chat-author">${m.user} <span class="chat-time">${m.time}</span></div>
+        <div class="chat-bubble">${m.msg}</div>
+      </div>
+    </div>`).join('');
+  el.scrollTop=el.scrollHeight;
+}
+
+function showPage(name){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-links button').forEach(b=>b.classList.remove('active'));
+  document.getElementById('page-'+name).classList.add('active');
+  ['home','rankings','news','trade','chat','snapdecision','rosters','mockdraft'].forEach((n,i)=>{if(n===name)document.querySelectorAll('.nav-links button')[i].classList.add('active')});
+  if (name === 'rosters') { buildTeamTabs(); renderRosterPage(); }
+}
+function switchTab(btn,tab){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  ['redraft','dynasty','rookie','idp'].forEach(t=>{const el=document.getElementById('tab-'+t);if(el)el.style.display=t===tab?'block':'none'});
+}
+function filterPos(el,pos){document.querySelectorAll('#tab-redraft .filter-pill').forEach(p=>p.classList.remove('active'));el.classList.add('active');curPos=pos;renderRedraft()}
+function filterIDP(el,pos){document.querySelectorAll('#tab-idp .filter-pill').forEach(p=>p.classList.remove('active'));el.classList.add('active');curIDP=pos;renderIDP()}
+function filterNews(el,tag){document.querySelectorAll('#page-news .filter-pill').forEach(p=>p.classList.remove('active'));el.classList.add('active');curNews=tag;renderNews()}
+function searchPlayers(v){curSearch=v;renderRedraft()}
+// addTradePlayer and removeTrade replaced by addPlayerToSide / removeTradePlayer above
+function sendChat(){
+  const el=document.getElementById('chat-input'),v=el.value.trim();
+  if(!v)return;
+  chats.push({user:'You',init:'ME',msg:v,time:'Now',self:true});
+  el.value='';renderChat();
+}
+// Clear ALL old cached roster data so live ESPN proxy is always used
+try {
+  localStorage.removeItem("snapff_sleeper_players");
+  localStorage.removeItem("snapff_sleeper_time");
+  localStorage.removeItem("snapff_espn_rosters");
+  localStorage.removeItem("snapff_espn_time");
+} catch(e) {}
+renderRedraft();renderDynasty();renderRookies();renderIDP();renderNews();renderTrade();renderChat();updateSettingsNote();
+
+// Load ESPN rosters silently in background — parallel fetches, always current
+loadESPNRosters().then(() => {
+  renderTrade();
+  if (typeof renderRosterPage === 'function') renderRosterPage();
+}).catch(() => {});
+
+// ========== SNAP DECISION ENGINE ==========
+let currentMode = 'start-sit';
+
+function selectMode(el, mode) {
+  document.querySelectorAll('.sd-mode-card').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+  currentMode = mode;
+  ['start-sit','draft-pick','waiver'].forEach(m => {
+    const f = document.getElementById('sd-form-'+m);
+    if(f) f.style.display = m === mode ? 'block' : 'none';
+  });
+  document.getElementById('sd-result').classList.remove('show');
+  document.getElementById('sd-thinking').classList.remove('show');
+}
+
+function toggleFactor(el) { el.classList.toggle('on'); }
+
+// ===== ESPN API — LIVE NFL ROSTERS =====
+// Uses ESPN's public (no-key) team roster endpoint.
+// All 32 teams fetched in parallel — fast, current, free.
+// ESPN team IDs mapped to abbreviations for display.
+
+const ESPN_TEAMS = [
+  {id:22,abbr:"ARI"},{id:1,abbr:"ATL"},{id:33,abbr:"BAL"},{id:2,abbr:"BUF"},
+  {id:29,abbr:"CAR"},{id:3,abbr:"CHI"},{id:4,abbr:"CIN"},{id:5,abbr:"CLE"},
+  {id:6,abbr:"DAL"},{id:7,abbr:"DEN"},{id:8,abbr:"DET"},{id:9,abbr:"GB"},
+  {id:34,abbr:"HOU"},{id:11,abbr:"IND"},{id:30,abbr:"JAX"},{id:12,abbr:"KC"},
+  {id:24,abbr:"LAC"},{id:14,abbr:"LAR"},{id:13,abbr:"LV"},{id:15,abbr:"MIA"},
+  {id:16,abbr:"MIN"},{id:17,abbr:"NE"}, {id:18,abbr:"NO"},{id:19,abbr:"NYG"},
+  {id:20,abbr:"NYJ"},{id:21,abbr:"PHI"},{id:23,abbr:"PIT"},{id:26,abbr:"SEA"},
+  {id:25,abbr:"SF"}, {id:27,abbr:"TB"},{id:10,abbr:"TEN"},{id:28,abbr:"WAS"}
+];
+
+const OFF_POS = new Set(["QB","RB","WR","TE"]);
+
+let sleeperPlayers = [];  // named for compatibility — now powered by ESPN
+let sleeperLoaded  = false;
+let espnLoadError  = false;
+
+async function loadESPNRosters() {
+  if (sleeperLoaded) return;
+
+  // Check localStorage cache — re-fetch if older than 6 hours
+  try {
+    const cached   = localStorage.getItem("snapff_espn_rosters");
+    const cacheAge = localStorage.getItem("snapff_espn_time");
+    if (cached && cacheAge && (Date.now() - parseInt(cacheAge)) < 6 * 3600 * 1000) {
+      sleeperPlayers = JSON.parse(cached);
+      sleeperLoaded  = true;
+      syncESPNToTradeDB();
+      console.log("[SnapFF] Rosters loaded from cache:", sleeperPlayers.length, "players");
+      return;
+    }
+  } catch(e) {}
+
+  try {
+    // Call our Netlify proxy function — no CORS issues, always current ESPN data
+    console.log("[SnapFF] Fetching live rosters via Netlify proxy...");
+    const res  = await fetch("/.netlify/functions/roster");
+    const data = await res.json();
+
+    if (!data.players || !data.players.length) throw new Error("No players returned");
+
+    // Merge with local DB fantasy values
+    const players = data.players.map(p => {
+      const local = playerDB.find(l =>
+        l.name.toLowerCase() === p.name.toLowerCase() ||
+        l.name.replace(/[^a-zA-Z]/g,"").toLowerCase() === p.name.replace(/[^a-zA-Z]/g,"").toLowerCase()
+      );
+      return {
+        ...p,
+        redraft: local ? local.redraft : 0,
+        dynasty: local ? local.dynasty : 0,
+        rec:     local ? local.rec     : 50
+      };
+    }).sort((a, b) => {
+      if (a.redraft > 0 && b.redraft > 0) return b.redraft - a.redraft;
+      if (a.redraft > 0) return -1;
+      if (b.redraft > 0) return  1;
+      return a.name.localeCompare(b.name);
+    });
+
+    sleeperPlayers = players;
+    sleeperLoaded  = true;
+
+    try {
+      localStorage.setItem("snapff_espn_rosters", JSON.stringify(players));
+      localStorage.setItem("snapff_espn_time", String(Date.now()));
+    } catch(e) {}
+
+    console.log("[SnapFF] Live rosters loaded:", players.length, "players");
+    syncESPNToTradeDB();
+
+  } catch(err) {
+    console.warn("[SnapFF] Proxy fetch failed, using local DB:", err.message);
+    sleeperPlayers = playerDB.filter(p => p.pos !== "PICK").sort((a,b) => b.redraft - a.redraft);
+    sleeperLoaded  = true;
+  }
+}
+
+function syncESPNToTradeDB() {
+  // Patch playerDB with live ESPN team/age so trade calc is also current
+  playerDB.forEach(p => {
+    if (p.pos === "PICK") return;
+    const live = sleeperPlayers.find(s =>
+      s.name.toLowerCase() === p.name.toLowerCase() ||
+      s.name.replace(/[^a-z]/gi,"").toLowerCase() === p.name.replace(/[^a-z]/gi,"").toLowerCase()
+    );
+    if (live) { p.team = live.team; if (live.age) p.age = live.age; }
+  });
+}
+
+// ===== SEARCH FUNCTIONS =====
+function sdAutoComplete(input, dropId) {
+  const q    = input.value.trim();
+  const drop = document.getElementById(dropId);
+  if (q.length < 2) { sdHideDrop(drop); return; }
+
+  const pool    = sleeperLoaded ? sleeperPlayers : playerDB.filter(p => p.pos !== 'PICK');
+  const results = pool
+    .filter(p => p.name.toLowerCase().includes(q.toLowerCase()))
+    .slice(0, 10);
+
+  renderSdDropdown(results, input, drop);
+}
+
+function renderSdDropdown(players, input, drop) {
+  if (!players || !players.length) {
+    drop.innerHTML = '<div style="padding:12px 14px;color:var(--muted);font-size:12px">No players found. Try a different spelling.</div>';
+    drop.classList.add('show');
+    return;
+  }
+
+  const statusColor = { Starter:'var(--accent)', Rookie:'var(--gold)', Backup:'var(--muted)', Handcuff:'#7B8FFF', Questionable:'var(--gold)', Doubtful:'var(--accent2)', Out:'var(--accent2)', IR:'var(--accent2)' };
+  const statusBg    = { Starter:'rgba(30,144,255,.15)', Rookie:'rgba(245,200,66,.15)', Questionable:'rgba(245,200,66,.12)', Out:'rgba(255,79,43,.12)', IR:'rgba(255,79,43,.12)', Doubtful:'rgba(255,79,43,.12)' };
+
+  drop.innerHTML = players.map(p => {
+    const safeName  = p.name.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+    const val       = p.redraft > 0 ? p.redraft : (p.dynasty > 0 ? p.dynasty : null);
+    const stColor   = statusColor[p.status]  || 'var(--muted)';
+    const stBg      = statusBg[p.status]     || 'rgba(107,120,118,.15)';
+    const badge     = p.status && p.status !== 'Active'
+      ? '<span style="font-size:9px;font-weight:800;text-transform:uppercase;padding:1px 6px;border-radius:3px;margin-left:6px;background:' + stBg + ';color:' + stColor + '">' + p.status + '</span>'
+      : '';
+    const liveDot   = sleeperLoaded ? '<span style="font-size:7px;color:var(--accent);margin-left:3px" title="Live Sleeper data">●</span>' : '';
+    return '<div class="sd-ac-item" data-inputid="' + input.id + '" data-dropid="' + drop.id + '" data-name="' + safeName + '">' +
+      '<div style="flex:1;min-width:0">' +
+        '<div class="sd-ac-name">' + p.name + liveDot + '</div>' +
+        '<div class="sd-ac-meta">' + p.pos + ' · ' + (p.team||'FA') + (p.age ? ' · Age ' + p.age : '') + badge + '</div>' +
+      '</div>' +
+      (val ? '<div class="sd-ac-val">' + val + '</div>' : '<div class="sd-ac-val" style="font-size:10px;color:var(--muted)">—</div>') +
+    '</div>';
+  }).join('');
+
+  attachSdDropHandlers(drop, input);
+  drop.classList.add('show');
+}
+
+function attachSdDropHandlers(drop, input) {
+  drop.querySelectorAll('.sd-ac-item').forEach(el => {
+    const select = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const name = el.dataset.name.replace(/&amp;/g,'&').replace(/&quot;/g,'"');
+      input.value = name;
+      sdHideDrop(drop);
+    };
+    el.addEventListener('mousedown', select);
+    el.addEventListener('touchend',  select);
+  });
+}
+
+function sdHideDrop(drop) {
+  if (!drop) return;
+  drop.classList.remove('show');
+  drop.innerHTML = '';
+}
+
+// Global close on outside interaction
+['mousedown','touchstart'].forEach(evt => {
+  document.addEventListener(evt, e => {
+    if (!e.target.closest('.sd-autocomplete-wrap') && !e.target.closest('.tc-search-wrap')) {
+      document.querySelectorAll('.sd-ac-dropdown, .tc-suggestions').forEach(d => {
+        d.classList.remove('show');
+        if (d.classList.contains('sd-ac-dropdown')) d.innerHTML = '';
+      });
+    }
+  }, evt === 'touchstart' ? { passive: true } : false);
+});
+
+function getPlayerData(name) {
+  if (!name) return null;
+  const lower = name.toLowerCase();
+  return playerDB.find(p => p.name.toLowerCase().includes(lower)) || null;
+}
+
+function formatPlayerContext(p, label) {
+  if (!p) return `${label}: Not found in database — use general knowledge`;
+  const redVal  = p.redraft;
+  const dynVal  = p.dynasty;
+  const recRate = p.rec >= 80 ? 'High catch volume' : p.rec >= 55 ? 'Moderate receiving role' : 'Low receiving/run-focused';
+  const ageNote = p.age <= 23 ? 'Young/ascending' : p.age >= 32 ? 'Veteran/declining' : 'Prime age';
+  return `${label}: ${p.name} | ${p.pos} | ${p.team} | Age ${p.age} (${ageNote}) | Redraft Value: ${redVal}/99 | Dynasty Value: ${dynVal}/99 | Receiving Role: ${recRate}`;
+}
+
+function buildPrompt() {
+  if (currentMode === 'start-sit') {
+    const playerName = document.getElementById('ss-player').value || '';
+    const pos        = document.getElementById('ss-pos').value;
+    const opp        = document.getElementById('ss-opp').value || 'Unknown Opponent';
+    const loc        = document.getElementById('ss-loc').value;
+    const injury     = document.getElementById('ss-injury').value;
+    const weather    = document.getElementById('ss-weather').value;
+    const format     = document.getElementById('ss-format').value;
+    const context    = document.getElementById('ss-context').value;
+    const factors    = [...document.querySelectorAll('#sd-form-start-sit .sd-factor.on')].map(f=>f.textContent).join(', ');
+
+    const playerData = getPlayerData(playerName);
+    const playerCtx  = formatPlayerContext(playerData, 'Player');
+
+    return `You are SnapFFDecision, an expert fantasy football AI analyst for the 2026 NFL season.
+
+DECISION TYPE: START or SIT — weekly lineup decision ONLY. Do NOT give waiver, trade, or draft advice.
+
+PLAYER DATABASE CONTEXT:
+${playerCtx}
+
+USER INPUTS:
+- Player: ${playerName || 'Unknown'} (${pos})
+- Opponent: ${opp}
+- Location: ${loc}
+- Injury Status: ${injury}
+- Weather: ${weather}
+- League Format: ${format}
+- Factors to weigh: ${factors}
+- Extra context: ${context || 'None'}
+
+TASK: Give a clear weekly START or SIT recommendation for THIS WEEK'S matchup only.
+Focus on: this week's matchup difficulty vs position, injury impact on THIS game, weather effect, expected role and snap share, recent weekly scoring trends, Vegas implied totals and game script.
+Do NOT discuss long-term value, trades, or dynasty considerations.
+
+Respond ONLY with valid JSON — no markdown, no preamble:
+{
+  "verdict": "START" or "SIT" or "COIN FLIP",
+  "confidence": number 50-98,
+  "verdict_sub": "One sentence about this week specifically",
+  "factors": [
+    {"label": "This Week Matchup", "rating": "Favorable/Neutral/Tough", "score": 0-100, "note": "opponent rank vs position"},
+    {"label": "Injury Impact", "rating": "None/Minor/Moderate/Major", "score": 0-100, "note": "effect on THIS game"},
+    {"label": "Weather", "rating": "No Impact/Minor/Significant", "score": 0-100, "note": "specific weather concern"},
+    {"label": "Recent Form", "rating": "Hot/Good/Cold/Average", "score": 0-100, "note": "last 2-3 weeks trend"},
+    {"label": "Role & Usage", "rating": "Lead/Shared/Limited", "score": 0-100, "note": "snap share and target/carry share"},
+    {"label": "Game Script", "rating": "Favorable/Neutral/Unfavorable", "score": 0-100, "note": "Vegas spread and implied total"}
+  ],
+  "analysis": "3-4 sentences focused on THIS WEEK only. Lead with the matchup, mention injury status, note weather if relevant, conclude with a clear actionable recommendation."
+}`;
+  }
+
+  if (currentMode === 'draft-pick') {
+    const p1Name = document.getElementById('dp-p1').value || 'Player A';
+    const p2Name = document.getElementById('dp-p2').value || 'Player B';
+    const pick   = document.getElementById('dp-pick').value || 'unknown';
+    const type   = document.getElementById('dp-type').value;
+    const format = document.getElementById('dp-format').value;
+    const needs  = document.getElementById('dp-needs').value;
+
+    const p1Data = getPlayerData(p1Name);
+    const p2Data = getPlayerData(p2Name);
+    const p1Ctx  = formatPlayerContext(p1Data, 'Option 1');
+    const p2Ctx  = formatPlayerContext(p2Data, 'Option 2');
+
+    const isDynasty = type === 'Dynasty' || type === 'Rookie';
+    const valField  = isDynasty ? 'dynasty' : 'redraft';
+    const p1Val = p1Data ? p1Data[valField] : null;
+    const p2Val = p2Data ? p2Data[valField] : null;
+    const valNote = (p1Val && p2Val) ? `Database value edge: ${p1Val > p2Val ? p1Name + ' (' + p1Val + ' vs ' + p2Val + ')' : p1Val < p2Val ? p2Name + ' (' + p2Val + ' vs ' + p1Val + ')' : 'Virtually equal (' + p1Val + ' each)'}` : '';
+
+    return `You are SnapFFDecision, an expert fantasy football AI analyst for the 2026 NFL season.
+
+DECISION TYPE: DRAFT PICK — who to select at a specific draft position. Do NOT give lineup or waiver advice.
+
+PLAYER DATABASE CONTEXT:
+${p1Ctx}
+${p2Ctx}
+${valNote}
+
+USER INPUTS:
+- Draft Pick #: ${pick}
+- Option 1: ${p1Name}
+- Option 2: ${p2Name}
+- Draft Type: ${type}
+- League Format: ${format}
+- Team needs: ${needs || 'Not specified'}
+
+TASK: Recommend which player to DRAFT at pick #${pick} in a ${type} ${format} league.
+Consider: value relative to pick position (ADP), upside ceiling, floor reliability, positional scarcity, age (for dynasty), fit with team needs, and ${format} scoring impact.
+${isDynasty ? 'This is a DYNASTY/ROOKIE draft — heavily weight age, long-term upside, and years of production over current season value.' : 'This is a REDRAFT draft — focus on 2026 projected production and reliability over long-term potential.'}
+
+Respond ONLY with valid JSON — no markdown, no preamble:
+{
+  "verdict": "DRAFT ${p1Name}" or "DRAFT ${p2Name}" or "COIN FLIP",
+  "confidence": number 50-95,
+  "verdict_sub": "One sentence on why this player at this pick",
+  "factors": [
+    {"label": "Value at Pick #${pick}", "rating": "Steal/Fair/Reach", "score": 0-100, "note": "ADP relative to pick"},
+    {"label": "${p1Name} Ceiling", "rating": "Elite/High/Medium/Low", "score": 0-100, "note": "upside potential"},
+    {"label": "${p2Name} Ceiling", "rating": "Elite/High/Medium/Low", "score": 0-100, "note": "upside potential"},
+    {"label": "Floor / Safety", "rating": "High/Medium/Low", "score": 0-100, "note": "reliability of production"},
+    {"label": "Positional Scarcity", "rating": "Premium/Standard/Deep", "score": 0-100, "note": "how thin is this position"},
+    {"label": "${format} Fit", "rating": "Great/Good/Neutral/Poor", "score": 0-100, "note": "scoring format impact"}
+  ],
+  "analysis": "3-4 sentences comparing both players specifically at pick #${pick}. Reference their positions, teams, and why one wins at this spot. Be direct and opinionated."
+}`;
+  }
+
+  if (currentMode === 'waiver') {
+    const addName  = document.getElementById('wv-add').value || 'Unknown Player';
+    const dropName = document.getElementById('wv-drop').value || 'Unknown Player';
+    const format   = document.getElementById('wv-format').value;
+    const roster   = document.getElementById('wv-roster').value;
+    const context  = document.getElementById('wv-context').value;
+
+    const addData  = getPlayerData(addName);
+    const dropData = getPlayerData(dropName);
+    const addCtx   = formatPlayerContext(addData, 'Player to ADD');
+    const dropCtx  = formatPlayerContext(dropData, 'Player to DROP');
+
+    const addVal   = addData ? addData.redraft : null;
+    const dropVal  = dropData ? dropData.redraft : null;
+    const valCompare = (addVal && dropVal)
+      ? `Database redraft value: ADD ${addName} (${addVal}) vs KEEP ${dropName} (${dropVal}) — ${addVal > dropVal ? addName + ' has higher base value' : addVal < dropVal ? dropName + ' has higher base value — need strong reason to drop' : 'similar base values'}`
+      : '';
+
+    return `You are SnapFFDecision, an expert fantasy football AI analyst for the 2026 NFL season.
+
+DECISION TYPE: WAIVER WIRE — should the user add a player off waivers and drop another from their roster?
+This is a ROSTER MANAGEMENT decision, NOT a lineup/start-sit question. Analyze whether adding this player and cutting the other improves the roster long term.
+
+PLAYER DATABASE CONTEXT:
+${addCtx}
+${dropCtx}
+${valCompare}
+
+USER INPUTS:
+- Add: ${addName}
+- Drop: ${dropName}
+- League Format: ${format}
+- Roster Situation: ${roster}
+- Context: ${context || 'None'}
+
+TASK: Decide whether to ADD ${addName} (and drop ${dropName}) or HOLD ${dropName} (and pass on the add).
+Consider: Is ${addName} likely to have a meaningful starting role? What is their opportunity share — are they a starter, backup, or handcuff? Is ${dropName} still valuable or a sunk cost? How does the ${roster} situation affect risk tolerance? ${format} scoring format impact on both players.
+Do NOT tell the user whether to start either player this week — only whether to make the roster move.
+
+Respond ONLY with valid JSON — no markdown, no preamble:
+{
+  "verdict": "ADD ${addName}" or "HOLD ${dropName}" or "COIN FLIP",
+  "confidence": number 50-95,
+  "verdict_sub": "One sentence on the roster move itself",
+  "factors": [
+    {"label": "${addName} Opportunity", "rating": "Featured/Shared/Backup/Handcuff", "score": 0-100, "note": "starting role and usage share"},
+    {"label": "${addName} Upside", "rating": "Elite/High/Medium/Low", "score": 0-100, "note": "ceiling if role expands"},
+    {"label": "${dropName} Remaining Value", "rating": "High/Medium/Low/Gone", "score": 0-100, "note": "is dropping them a real cost"},
+    {"label": "Roster Fit", "rating": "Great/Good/Neutral/Poor", "score": 0-100, "note": "fills a need based on situation"},
+    {"label": "Timing of Move", "rating": "Great/Good/Wait/Pass", "score": 0-100, "note": "is now the right time"},
+    {"label": "${format} Value", "rating": "Boosted/Neutral/Reduced", "score": 0-100, "note": "how format affects both players"}
+  ],
+  "analysis": "3-4 sentences focused on the ROSTER MOVE only. Explain what role ${addName} has or is likely to get, whether ${dropName} is worth keeping, and make a clear ADD or HOLD recommendation. Do not discuss weekly matchups or starting lineup decisions."
+}`;
+  }
+}
+
+async function runSnapDecision() {
+  const btn = document.getElementById('sd-btn') || document.querySelector('#sd-form-'+currentMode+' .sd-submit');
+  const thinking = document.getElementById('sd-thinking');
+  const result = document.getElementById('sd-result');
+
+  result.classList.remove('show');
+  thinking.classList.add('show');
+  if(btn) btn.disabled = true;
+
+  // Cycle thinking messages
+  const messages = [
+    'Scanning matchup data, injury reports & weather...',
+    'Analyzing recent form and usage trends...',
+    'Checking Vegas lines and game script...',
+    'Calculating confidence score...',
+    'Generating your Snap Decision...'
+  ];
+  let mi = 0;
+  const msgEl = thinking.querySelector('.sd-thinking-text');
+  const msgInterval = setInterval(() => {
+    mi = (mi + 1) % messages.length;
+    msgEl.innerHTML = `<strong>Analyzing your decision...</strong>${messages[mi]}`;
+  }, 1400);
+
+  try {
+    const prompt = buildPrompt();
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    const data = await response.json();
+    const raw = data.content.map(b => b.text || '').join('');
+    const clean = raw.replace(/```json|```/g,'').trim();
+    const parsed = JSON.parse(clean);
+    clearInterval(msgInterval);
+    thinking.classList.remove('show');
+    if(btn) btn.disabled = false;
+    showResult(parsed);
+  } catch(e) {
+    clearInterval(msgInterval);
+    thinking.classList.remove('show');
+    if(btn) btn.disabled = false;
+    // Fallback if API fails
+    const fallbacks = {
+      'start-sit': {
+        verdict:'COIN FLIP', confidence:60,
+        verdict_sub:'Unable to fully analyze — check injury report and matchup manually',
+        factors:[
+          {label:'This Week Matchup',rating:'Neutral',   score:60,note:'Check opponent vs position rank'},
+          {label:'Injury Impact',    rating:'Unknown',   score:60,note:'Verify practice report'},
+          {label:'Weather',          rating:'No Impact', score:80,note:'Check game forecast'},
+          {label:'Recent Form',      rating:'Average',   score:60,note:'Review last 3 weeks'},
+          {label:'Role & Usage',     rating:'Shared',    score:60,note:'Confirm snap share'},
+          {label:'Game Script',      rating:'Neutral',   score:60,note:'Check Vegas line'},
+        ],
+        analysis:"We could not fully analyze this start/sit decision right now. Key things to check: opponent defensive ranking vs position, the injury report, and Vegas implied total. If the player is healthy facing a bottom-10 defense, lean start."
+      },
+      'draft-pick': {
+        verdict:'COIN FLIP', confidence:55,
+        verdict_sub:'Unable to compare — check ADP and positional value manually',
+        factors:[
+          {label:'Value at Pick',      rating:'Fair',   score:65,note:'Compare to ADP consensus'},
+          {label:'Player A Ceiling',   rating:'Medium', score:60,note:'Check opportunity'},
+          {label:'Player B Ceiling',   rating:'Medium', score:60,note:'Check opportunity'},
+          {label:'Floor / Safety',     rating:'Medium', score:60,note:'Consistency of role'},
+          {label:'Positional Scarcity',rating:'Standard',score:60,note:'Check position depth'},
+          {label:'Format Fit',         rating:'Neutral',score:60,note:'Format impact unclear'},
+        ],
+        analysis:"We could not fully compare these draft options right now. At early picks, prioritize elite upside and positional scarcity. In PPR, pass-catchers gain value. In dynasty, lean younger. When in doubt, take the player with the most locked-in role."
+      },
+      'waiver': {
+        verdict:'COIN FLIP', confidence:55,
+        verdict_sub:'Unable to fully evaluate the roster move — check opportunity manually',
+        factors:[
+          {label:'Add Opportunity',    rating:'Unknown',  score:55,note:'Confirm starting role'},
+          {label:'Add Upside',         rating:'Medium',   score:60,note:'Check target/carry share'},
+          {label:'Drop Remaining Value',rating:'Unknown', score:55,note:'Assess keeper value'},
+          {label:'Roster Fit',         rating:'Neutral',  score:60,note:'Evaluate positional need'},
+          {label:'Timing of Move',     rating:'Wait',     score:50,note:'Get more info first'},
+          {label:'Format Value',       rating:'Neutral',  score:60,note:'Format impact unclear'},
+        ],
+        analysis:"We could not fully evaluate this waiver move right now. Key question: does the player you want to add have a clear path to a starting role? If yes and the player you are dropping has no real role left, make the move. Never drop a guaranteed starter for a speculative add."
+      }
+    };
+    showResult(fallbacks[currentMode] || fallbacks['start-sit']);
+  }
+}
+
+function showResult(data) {
+  const result = document.getElementById('sd-result');
+  const verdictColors = {
+    'START': 'var(--accent)', 'START HIM': 'var(--accent)', 'START HER': 'var(--accent)',
+    'SIT': 'var(--accent2)', 'SIT HIM': 'var(--accent2)', 'SIT HER': 'var(--accent2)',
+    'COIN FLIP': 'var(--gold)', 'HOLD': 'var(--gold)'
+  };
+  const verdictIcons = {
+    'START': '✅', 'START HIM': '✅', 'DRAFT': '📋', 'ADD': '📡',
+    'SIT': '🚫', 'SIT HIM': '🚫', 'COIN FLIP': '🪙', 'HOLD': '🤔'
+  };
+  const vKey = Object.keys(verdictColors).find(k => data.verdict.toUpperCase().startsWith(k)) || 'COIN FLIP';
+  const vColor = verdictColors[vKey] || 'var(--gold)';
+  const vIcon = verdictIcons[vKey] || '⚡';
+
+  document.getElementById('sd-verdict-icon').textContent = vIcon;
+  document.getElementById('sd-verdict-label').textContent = data.verdict.toUpperCase();
+  document.getElementById('sd-verdict-label').style.color = vColor;
+  document.getElementById('sd-verdict-bar').style.borderColor = vColor.replace('var(--accent)','#1E90FF').replace('var(--accent2)','#FF4F2B').replace('var(--gold)','#F5C842');
+  document.getElementById('sd-verdict-sub').textContent = data.verdict_sub;
+  document.getElementById('sd-conf-val').textContent = data.confidence + '%';
+  document.getElementById('sd-conf-val').style.color = vColor;
+
+  const ratingColors = {
+    'Favorable':'#1E90FF','Hot':'#1E90FF','Great':'#1E90FF','High':'#1E90FF','Lead':'#1E90FF','None':'#1E90FF','No Impact':'#1E90FF','Upgrade':'#1E90FF','Elite':'#1E90FF',
+    'Neutral':'#F5C842','Average':'#F5C842','Medium':'#F5C842','Minor':'#F5C842','Good':'#F5C842','Fair':'#F5C842','Standard':'#F5C842','Shared':'#F5C842',
+    'Tough':'#FF4F2B','Poor':'#FF4F2B','Low':'#FF4F2B','Cold':'#FF4F2B','Major':'#FF4F2B','Downgrade':'#FF4F2B','Significant':'#FF4F2B','Reach':'#FF4F2B','Gone':'#FF4F2B',
+  };
+
+  document.getElementById('sd-factors-grid').innerHTML = (data.factors || []).map(f => {
+    const col = ratingColors[f.rating] || '#6B7876';
+    return `<div class="sd-factor-card">
+      <div class="fc-label">${f.label}</div>
+      <div class="fc-val" style="color:${col}">${f.rating} <span style="color:var(--muted);font-size:11px;font-weight:400">· ${f.note}</span></div>
+      <div class="fc-bar"><div class="fc-fill" style="width:${f.score}%;background:${col}"></div></div>
+    </div>`;
+  }).join('');
+
+  // Typewriter effect for analysis
+  const analysisEl = document.getElementById('sd-analysis-text');
+  analysisEl.textContent = '';
+  const text = data.analysis || '';
+  let i = 0;
+  const typeInterval = setInterval(() => {
+    analysisEl.textContent += text[i] || '';
+    i++;
+    if(i >= text.length) clearInterval(typeInterval);
+  }, 18);
+
+  result.classList.add('show');
+  result.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function resetDecision() {
+  document.getElementById('sd-result').classList.remove('show');
+  document.getElementById('sd-thinking').classList.remove('show');
+  window.scrollTo({ top: document.getElementById('page-snapdecision').offsetTop - 80, behavior: 'smooth' });
+}
+
+// ===== NFL ROSTERS PAGE =====
+const NFL_TEAMS = [
+  'ARI','ATL','BAL','BUF','CAR','CHI','CIN','CLE',
+  'DAL','DEN','DET','GB','HOU','IND','JAX','KC',
+  'LAC','LAR','LV','MIA','MIN','NE','NO','NYG',
+  'NYJ','PHI','PIT','SEA','SF','TB','TEN','WAS'
+];
+
+const TEAM_NAMES = {
+  ARI:'Cardinals',ATL:'Falcons',BAL:'Ravens',BUF:'Bills',CAR:'Panthers',CHI:'Bears',
+  CIN:'Bengals',CLE:'Browns',DAL:'Cowboys',DEN:'Broncos',DET:'Lions',GB:'Packers',
+  HOU:'Texans',IND:'Colts',JAX:'Jaguars',KC:'Chiefs',LAC:'Chargers',LAR:'Rams',
+  LV:'Raiders',MIA:'Dolphins',MIN:'Vikings',NE:'Patriots',NO:'Saints',NYG:'Giants',
+  NYJ:'Jets',PHI:'Eagles',PIT:'Steelers',SEA:'Seahawks',SF:'49ers',TB:'Buccaneers',
+  TEN:'Titans',WAS:'Commanders'
+};
+
+let rosterPosFilter = 'ALL';
+let rosterSearchQ   = '';
+let rosterTeamFilter = 'ALL';
+
+function rosterFilterPos(el, pos) {
+  document.querySelectorAll('#page-rosters .filter-pill').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  rosterPosFilter = pos;
+  renderRosterPage();
+}
+
+function rosterSearchPlayer(q) {
+  rosterSearchQ = q.trim().toLowerCase();
+  rosterTeamFilter = rosterSearchQ ? 'ALL' : rosterTeamFilter;
+  renderRosterPage();
+}
+
+function setRosterTeam(team) {
+  rosterTeamFilter = team;
+  rosterSearchQ = '';
+  document.getElementById('roster-search').value = '';
+  document.querySelectorAll('.team-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.team-tab').forEach(t => {
+    if (t.dataset.team === team) t.classList.add('active');
+  });
+  renderRosterPage();
+}
+
+function buildTeamTabs() {
+  const wrap = document.getElementById('team-tabs');
+  if (!wrap || wrap.dataset.built) return;
+  wrap.dataset.built = '1';
+  const allDiv = document.createElement('div');
+  allDiv.className = 'team-tab all-tab active';
+  allDiv.dataset.team = 'ALL';
+  allDiv.textContent = 'All Teams';
+  allDiv.addEventListener('click', () => setRosterTeam('ALL'));
+  wrap.appendChild(allDiv);
+  NFL_TEAMS.forEach(t => {
+    const div = document.createElement('div');
+    div.className = 'team-tab';
+    div.dataset.team = t;
+    div.textContent = t;
+    div.addEventListener('click', () => setRosterTeam(t));
+    wrap.appendChild(div);
+  });
+}
+
+function renderRosterPage() {
+  const content = document.getElementById('roster-content');
+  const status  = document.getElementById('roster-sync-status');
+  if (!content) return;
+
+  const pool = sleeperLoaded ? sleeperPlayers : playerDB.filter(p => p.pos !== 'PICK');
+
+  if (!pool || pool.length === 0) {
+    content.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted)"><div style="font-size:32px;margin-bottom:12px">🏈</div><div style="font-family:Bebas Neue,sans-serif;font-size:18px">Loading live roster data...</div></div>';
+    return;
+  }
+
+  if (status) {
+    const src = sleeperLoaded ? "● Live — ESPN API (Current Rosters)" : "○ Local DB — ESPN proxy not connected";
+    const col = sleeperLoaded ? "var(--accent)" : "var(--muted)";
+    status.innerHTML = `<span style="color:${col}">${src} · ${pool.length} players</span>`;
+  }
+
+  // Build team tabs once
+  if (!document.querySelector('.team-tab')) buildTeamTabs();
+
+  // Filter pool
+  let filtered = pool.filter(p => {
+    if (rosterPosFilter !== 'ALL' && p.pos !== rosterPosFilter) return false;
+    if (rosterSearchQ && !p.name.toLowerCase().includes(rosterSearchQ)) return false;
+    if (rosterTeamFilter !== 'ALL' && p.team !== rosterTeamFilter) return false;
+    return true;
+  });
+
+  if (!filtered.length) {
+    content.innerHTML = '<div style="padding:32px;text-align:center;color:var(--muted);font-size:14px">No players match your filters.</div>';
+    return;
+  }
+
+  // Group by team
+  const byTeam = {};
+  filtered.forEach(p => {
+    const t = p.team || 'FA';
+    if (!byTeam[t]) byTeam[t] = [];
+    byTeam[t].push(p);
+  });
+
+  // Sort teams: NFL_TEAMS order first, then FA
+  const sortedTeams = [
+    ...NFL_TEAMS.filter(t => byTeam[t]),
+    ...(byTeam['FA'] ? ['FA'] : []),
+    ...Object.keys(byTeam).filter(t => !NFL_TEAMS.includes(t) && t !== 'FA')
+  ];
+
+  const posClass = { QB:'pos-qb', RB:'pos-rb', WR:'pos-wr', TE:'pos-te' };
+  const injuryClass = { Questionable:'status-q', Doubtful:'status-d', Out:'status-out', IR:'status-ir' };
+
+  content.innerHTML = sortedTeams.map(team => {
+    const players = byTeam[team].sort((a,b) => {
+      // Sort by pos priority then by depth/value
+      const posOrder = {QB:0,RB:1,WR:2,TE:3};
+      const pa = posOrder[a.pos] ?? 9, pb = posOrder[b.pos] ?? 9;
+      if (pa !== pb) return pa - pb;
+      return (b.redraft || 0) - (a.redraft || 0);
+    });
+
+    // Track depth by position within team
+    const posDepth = {};
+
+    const rows = players.map(p => {
+      if (!posDepth[p.pos]) posDepth[p.pos] = 0;
+      posDepth[p.pos]++;
+      const depth = posDepth[p.pos];
+      const depthClass = depth === 1 ? 'd1' : depth === 2 ? 'd2' : '';
+      const val   = (p.redraft > 0 ? p.redraft : p.dynasty > 0 ? p.dynasty : 0);
+      const injSt = p.status && injuryClass[p.status] ? p.status : '';
+      const injCls= injSt ? injuryClass[p.status] : '';
+      const statusHtml = injSt
+        ? '<span class="r-status ' + injCls + '">' + injSt + '</span>'
+        : '<span class="r-status status-active">Active</span>';
+
+      return '<div class="roster-row">' +
+        '<div class="depth-num ' + depthClass + '">' + depth + '</div>' +
+        '<div><div class="r-name">' + p.name + '</div></div>' +
+        '<div><span class="r-pos ' + (posClass[p.pos]||'') + '">' + p.pos + '</span></div>' +
+        '<div class="r-age">' + (p.age || '—') + '</div>' +
+        '<div>' + statusHtml + '</div>' +
+        '<div class="r-val ' + (val < 20 ? 'low' : '') + '">' + (val || '—') + '</div>' +
+      '</div>';
+    }).join('');
+
+    const teamLabel = team === 'FA' ? 'Free Agents' : (TEAM_NAMES[team] || team) + ' (' + team + ')';
+
+    return '<div class="roster-table">' +
+      '<div class="roster-team-header">' +
+        '<div class="roster-team-name">' + teamLabel + '</div>' +
+        '<div class="roster-team-count">' + players.length + ' players</div>' +
+      '</div>' +
+      '<div class="roster-hdr"><div>#</div><div>Player</div><div>Pos</div><div>Age</div><div>Status</div><div>Value</div></div>' +
+      rows +
+    '</div>';
+  }).join('');
+}
+
+// Roster page auto-renders via showPage
+
+
+// ===== MOCK DRAFT ENGINE =====
+const MD = {
+  numTeams:   8,
+  pool:       'all',    // 'all' | 'rookie'
+  format:     'ppr',
+  timerSecs:  60,
+  slots:      [],       // true = human, false = cpu
+  draftOrder: [],       // player objects, sorted by value
+  rosters:    [],       // array of arrays (one per team)
+  drafted:    new Set(),
+  pickIdx:    0,        // current overall pick (0-based)
+  totalPicks: 0,        // numTeams * 5
+  timerInt:   null,
+  timerLeft:  0,
+  posFilter:  'ALL',
+  searchQ:    '',
+  viewTeam:   0,
+};
+
+// ---- SETUP ----
+function mdSetTeams(btn, n) {
+  MD.numTeams = n;
+  document.querySelectorAll('#md-teams-seg .md-seg-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  mdBuildSlots();
+}
+function mdSetPool(btn, v) {
+  MD.pool = v;
+  document.querySelectorAll('#md-pool-seg .md-seg-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+function mdSetFormat(btn, v) {
+  MD.format = v;
+  document.querySelectorAll('#md-format-seg .md-seg-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+function mdSetTimer(btn, v) {
+  MD.timerSecs = v;
+  document.querySelectorAll('#md-timer-seg .md-seg-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function mdBuildSlots() {
+  const grid = document.getElementById('md-slot-grid');
+  if (!grid) return;
+  // Preserve existing slot settings up to new count
+  const prev = MD.slots.slice();
+  MD.slots = Array.from({length: MD.numTeams}, (_, i) => i === 0 ? true : (prev[i] !== undefined ? prev[i] : false));
+  grid.innerHTML = MD.slots.map((isHuman, i) => `
+    <div class="md-slot${isHuman ? ' human' : ''}" id="md-slot-${i}" onclick="mdToggleSlot(${i})">
+      <div class="md-slot-icon">${isHuman ? '👤' : '🤖'}</div>
+      <div>
+        <div class="md-slot-label">Team ${i + 1}</div>
+        <div class="md-slot-sub">${isHuman ? 'Human' : 'CPU'}</div>
+      </div>
+    </div>`).join('');
+}
+
+function mdToggleSlot(i) {
+  MD.slots[i] = !MD.slots[i];
+  const el = document.getElementById('md-slot-' + i);
+  el.classList.toggle('human', MD.slots[i]);
+  el.querySelector('.md-slot-icon').textContent = MD.slots[i] ? '👤' : '🤖';
+  el.querySelector('.md-slot-sub').textContent = MD.slots[i] ? 'Human' : 'CPU';
+}
+
+// ---- BUILD PLAYER POOL ----
+function mdBuildPool() {
+  const rookieNames = new Set([
+    'Jeremiyah Love','Fernando Mendoza','Carnell Tate','Jordyn Tyson','Makai Lemon',
+    'Ashton Jeanty','Ty Simpson','Omar Cooper Jr.','Colston Loveland','K.C. Concepcion',
+    'Denzel Boston','Taylen Green','Zachariah Branch','Chris Brazzell II','Nicholas Singleton',
+    'Kaytron Allen','Emmett Johnson','Garrett Nussmeier','Shedeur Sanders','Cam Ward',
+    'Jadarian Price','Kenyon Sadiq'
+  ]);
+
+  let source = sleeperLoaded ? sleeperPlayers : playerDB.filter(p => p.pos !== 'PICK');
+  if (MD.pool === 'rookie') source = source.filter(p => rookieNames.has(p.name));
+
+  // Apply format multipliers for sort value
+  MD.draftOrder = source.map(p => {
+    let val = p.redraft || 0;
+    if (MD.format === 'ppr')  val += (p.rec || 50) * 0.06;
+    if (MD.format === 'half') val += (p.rec || 50) * 0.03;
+    return { ...p, draftVal: Math.round(val) };
+  }).sort((a, b) => b.draftVal - a.draftVal);
+
+  MD.drafted = new Set();
+}
+
+// ---- START DRAFT ----
+function mdStartDraft() {
+  if (MD.slots.filter(Boolean).length === 0) {
+    alert('Add at least one Human team to draft!');
+    return;
+  }
+  MD.totalPicks = MD.numTeams * 5;
+  MD.pickIdx    = 0;
+  MD.rosters    = Array.from({length: MD.numTeams}, () => []);
+
+  mdBuildPool();
+
+  document.getElementById('md-setup-screen').style.display  = 'none';
+  document.getElementById('md-board-screen').classList.add('active');
+  document.getElementById('md-complete-screen').classList.remove('show');
+
+  mdBuildRosterTabs();
+  mdRenderPool();
+  mdAdvanceToPick();
+}
+
+// ---- SNAKE ORDER ----
+function mdTeamForPick(pickIdx) {
+  const round = Math.floor(pickIdx / MD.numTeams);
+  const slot  = pickIdx % MD.numTeams;
+  return round % 2 === 0 ? slot : (MD.numTeams - 1 - slot);
+}
+
+function mdAdvanceToPick() {
+  if (MD.pickIdx >= MD.totalPicks) { mdCompleteDraft(); return; }
+
+  const round  = Math.floor(MD.pickIdx / MD.numTeams) + 1;
+  const teamIdx = mdTeamForPick(MD.pickIdx);
+  const isHuman = MD.slots[teamIdx];
+
+  document.getElementById('md-round-label').textContent  = 'Round ' + round;
+  document.getElementById('md-picking-label').textContent = (isHuman ? '👤' : '🤖') + ' Team ' + (teamIdx + 1) + ' is on the clock';
+  document.getElementById('md-pick-counter').textContent  = 'Pick ' + (MD.pickIdx + 1) + ' of ' + MD.totalPicks;
+
+  // Highlight draft button state
+  document.querySelectorAll('.md-draft-btn').forEach(b => b.disabled = !isHuman);
+
+  mdStartTimer(isHuman);
+
+  if (!isHuman) {
+    // CPU: small delay then auto-pick
+    setTimeout(() => mdCPUPick(teamIdx), 900);
+  }
+}
+
+// ---- TIMER ----
+function mdStartTimer(isHuman) {
+  clearInterval(MD.timerInt);
+  const el = document.getElementById('md-timer-display');
+  if (MD.timerSecs === 0) { el.textContent = '∞'; el.classList.remove('urgent'); return; }
+
+  MD.timerLeft = MD.timerSecs;
+  el.textContent = MD.timerLeft;
+  el.classList.remove('urgent');
+
+  MD.timerInt = setInterval(() => {
+    MD.timerLeft--;
+    el.textContent = MD.timerLeft;
+    if (MD.timerLeft <= 10) el.classList.add('urgent');
+    if (MD.timerLeft <= 0) {
+      clearInterval(MD.timerInt);
+      // Auto-pick for human if time runs out
+      const teamIdx = mdTeamForPick(MD.pickIdx);
+      mdCPUPick(teamIdx);
+    }
+  }, 1000);
+}
+
+// ---- PICK LOGIC ----
+function mdCPUPick(teamIdx) {
+  clearInterval(MD.timerInt);
+  const best = MD.draftOrder.find(p => !MD.drafted.has(p.name));
+  if (best) mdDraftPlayer(best, teamIdx);
+}
+
+function mdSkipPick() {
+  clearInterval(MD.timerInt);
+  const teamIdx = mdTeamForPick(MD.pickIdx);
+  mdCPUPick(teamIdx);
+}
+
+function mdPickPlayer(name) {
+  const teamIdx = mdTeamForPick(MD.pickIdx);
+  if (!MD.slots[teamIdx]) return; // not human's turn
+  const p = MD.draftOrder.find(pl => pl.name === name);
+  if (p && !MD.drafted.has(p.name)) mdDraftPlayer(p, teamIdx);
+}
+
+function mdDraftPlayer(player, teamIdx) {
+  clearInterval(MD.timerInt);
+  MD.drafted.add(player.name);
+  MD.rosters[teamIdx].push(player);
+
+  // Add to recent picks
+  const list   = document.getElementById('md-recent-picks');
+  const round  = Math.floor(MD.pickIdx / MD.numTeams) + 1;
+  const entry  = document.createElement('div');
+  entry.className = 'md-pick-entry';
+  const isHuman = MD.slots[teamIdx];
+  entry.innerHTML = `
+    <div class="md-pick-num">${MD.pickIdx + 1}</div>
+    <div style="flex:1">
+      <div class="md-pick-name">${player.name}</div>
+      <div class="md-pick-team">${isHuman ? '👤' : '🤖'} Team ${teamIdx + 1} · Rd ${round} · ${player.pos} · ${player.team || 'FA'}</div>
+    </div>
+    <span class="card-pos pos-${player.pos.toLowerCase()}" style="font-size:9px;padding:2px 6px">${player.pos}</span>`;
+  list.insertBefore(entry, list.firstChild);
+
+  MD.pickIdx++;
+  mdRenderPool();
+  mdRenderRoster(MD.viewTeam);
+  mdAdvanceToPick();
+}
+
+// ---- POOL RENDER ----
+function mdRenderPool() {
+  const list = document.getElementById('md-pool-list');
+  const teamIdx = mdTeamForPick(Math.min(MD.pickIdx, MD.totalPicks - 1));
+  const isHumanTurn = MD.slots[teamIdx] && MD.pickIdx < MD.totalPicks;
+
+  const players = MD.draftOrder.filter(p => {
+    if (MD.drafted.has(p.name)) return false;
+    if (MD.posFilter !== 'ALL' && p.pos !== MD.posFilter) return false;
+    if (MD.searchQ && !p.name.toLowerCase().includes(MD.searchQ)) return false;
+    return true;
+  }).slice(0, 80);
+
+  // Use data-name attribute + event listeners to avoid apostrophe issues in onclick
+  list.innerHTML = players.map(p => {
+    const val     = p.draftVal || p.redraft || 0;
+    const safeName = p.name.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+    return `<div class="md-pool-row">
+      <div style="flex:1">
+        <div class="pr-name">${p.name}</div>
+        <div class="pr-meta">${p.pos} · ${p.team || 'FA'}${p.age ? ' · Age ' + p.age : ''}</div>
+      </div>
+      <div class="pr-val">${val || '—'}</div>
+      <button class="md-draft-btn" data-player="${safeName}" ${isHumanTurn ? '' : 'disabled'}>DRAFT</button>
+    </div>`;
+  }).join('');
+
+  // Attach click handlers after render (safe — no inline onclick)
+  list.querySelectorAll('.md-draft-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.disabled) return;
+      const name = btn.dataset.player.replace(/&amp;/g,'&').replace(/&quot;/g,'"');
+      mdPickPlayer(name);
+    });
+  });
+}
+
+function mdFilterPool(q) {
+  MD.searchQ = q.toLowerCase();
+  mdRenderPool();
+}
+function mdPosFilter(btn, pos) {
+  MD.posFilter = pos;
+  document.querySelectorAll('.md-pos-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  mdRenderPool();
+}
+
+// ---- ROSTER SIDEBAR ----
+function mdBuildRosterTabs() {
+  const wrap = document.getElementById('md-roster-tabs');
+  wrap.innerHTML = MD.slots.map((isHuman, i) =>
+    `<div class="md-roster-tab${i === 0 ? ' active' : ''}" onclick="mdViewTeam(${i})">${isHuman ? '👤' : '🤖'}${i + 1}</div>`
+  ).join('');
+  MD.viewTeam = 0;
+  mdRenderRoster(0);
+}
+function mdViewTeam(i) {
+  MD.viewTeam = i;
+  document.querySelectorAll('.md-roster-tab').forEach((t, idx) => t.classList.toggle('active', idx === i));
+  mdRenderRoster(i);
+}
+function mdRenderRoster(i) {
+  const list   = document.getElementById('md-roster-view');
+  const roster = MD.rosters[i] || [];
+  if (!roster.length) { list.innerHTML = '<div style="padding:12px 14px;color:var(--muted);font-size:12px">No picks yet</div>'; return; }
+  list.innerHTML = roster.map((p, idx) => {
+    const round = Math.floor(idx) + 1;
+    return `<div class="md-roster-entry">
+      <div class="md-roster-round">R${round}</div>
+      <div class="md-roster-name">${p.name}</div>
+      <span class="card-pos pos-${p.pos.toLowerCase()}" style="font-size:9px;padding:1px 6px">${p.pos}</span>
+    </div>`;
+  }).join('');
+}
+
+// ---- COMPLETE ----
+// ===== ADP DATABASE (localStorage) =====
+// Stores every pick: { name, pos, team, overallPick, round, numTeams, format, ts }
+function mdSaveADPData() {
+  try {
+    const existing = JSON.parse(localStorage.getItem('snapff_adp_picks') || '[]');
+    const newPicks = [];
+    MD.rosters.forEach((roster, teamIdx) => {
+      roster.forEach((player, roundIdx) => {
+        const overallPick = roundIdx * MD.numTeams + teamIdx + 1;
+        newPicks.push({
+          name:        player.name,
+          pos:         player.pos,
+          team:        player.team || 'FA',
+          overallPick: overallPick,
+          round:       roundIdx + 1,
+          numTeams:    MD.numTeams,
+          format:      MD.format,
+          ts:          Date.now()
+        });
+      });
+    });
+    const combined = [...existing, ...newPicks];
+    // Keep last 10,000 picks max
+    const trimmed = combined.slice(-10000);
+    localStorage.setItem('snapff_adp_picks', JSON.stringify(trimmed));
+    console.log('[SnapFF] Saved', newPicks.length, 'picks to ADP database. Total:', trimmed.length);
+  } catch(e) {
+    console.warn('[SnapFF] Could not save ADP data:', e.message);
+  }
+}
+
+function mdLoadADPData() {
+  try {
+    return JSON.parse(localStorage.getItem('snapff_adp_picks') || '[]');
+  } catch(e) { return []; }
+}
+
+function mdCalcADP(posFilter) {
+  const picks = mdLoadADPData();
+  if (!picks.length) return [];
+
+  // Group by player name
+  const byPlayer = {};
+  picks.forEach(p => {
+    if (posFilter !== 'ALL' && p.pos !== posFilter) return;
+    if (!byPlayer[p.name]) byPlayer[p.name] = { name: p.name, pos: p.pos, team: p.team, picks: [] };
+    // Normalize to 12-team equivalent
+    const normalized = (p.overallPick / p.numTeams) * 12;
+    byPlayer[p.name].picks.push(normalized);
+  });
+
+  return Object.values(byPlayer)
+    .filter(p => p.picks.length > 0)
+    .map(p => ({
+      name:   p.name,
+      pos:    p.pos,
+      team:   p.team,
+      adp:    (p.picks.reduce((a,b) => a+b, 0) / p.picks.length).toFixed(1),
+      drafts: p.picks.length,
+      minPick: Math.min(...p.picks).toFixed(1),
+      maxPick: Math.max(...p.picks).toFixed(1),
+    }))
+    .sort((a, b) => parseFloat(a.adp) - parseFloat(b.adp));
+}
+
+let mdADPPosFilter = 'ALL';
+function mdADPFilter(el, pos) {
+  mdADPPosFilter = pos;
+  document.querySelectorAll('#md-adp-filters .filter-pill').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  mdRenderADP();
+}
+
+function mdRenderADP() {
+  const data = mdCalcADP(mdADPPosFilter);
+  const el   = document.getElementById('md-adp-content');
+  if (!el) return;
+
+  const totalDrafts = mdLoadADPData().length;
+
+  if (!data.length) {
+    el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">No draft data yet. Complete a mock draft to start building your ADP database.</div>';
+    return;
+  }
+
+  const posClass = {QB:'pos-qb',RB:'pos-rb',WR:'pos-wr',TE:'pos-te'};
+
+  el.innerHTML = `
+    <div style="font-size:11px;color:var(--muted);margin-bottom:10px">
+      Based on <strong style="color:var(--text)">${totalDrafts}</strong> total picks across all mock drafts on this device.
+      ADP normalized to 12-team equivalent.
+    </div>
+    <table class="md-adp-table">
+      <thead>
+        <tr>
+          <th>#</th><th>Player</th><th>Pos</th><th>ADP</th><th>Best</th><th>Worst</th><th>Drafts</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${data.slice(0, 100).map((p, i) => `
+          <tr>
+            <td style="color:var(--muted);font-weight:700">${i+1}</td>
+            <td style="font-weight:700">${p.name}</td>
+            <td><span class="card-pos ${posClass[p.pos]||''}" style="font-size:9px;padding:2px 6px">${p.pos}</span></td>
+            <td><span class="adp-val">${p.adp}</span></td>
+            <td style="color:var(--accent);font-size:12px">${p.minPick}</td>
+            <td style="color:var(--accent2);font-size:12px">${p.maxPick}</td>
+            <td><span class="adp-drafts">${p.drafts} draft${p.drafts===1?'':'s'}</span></td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+// ===== COMPLETE SCREEN TABS =====
+function mdCompleteTab(btn, tab) {
+  document.querySelectorAll('.md-complete-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('md-results-panel').style.display = tab === 'results' ? 'block' : 'none';
+  document.getElementById('md-adp-panel').style.display     = tab === 'adp'     ? 'block' : 'none';
+  if (tab === 'adp') mdRenderADP();
+}
+
+// ===== COMPLETE + EXIT =====
+function mdCompleteDraft() {
+  clearInterval(MD.timerInt);
+  document.getElementById('md-board-screen').classList.remove('active');
+  const screen = document.getElementById('md-complete-screen');
+  screen.classList.add('show');
+
+  // Save picks to ADP database
+  mdSaveADPData();
+
+  // Render results
+  const results = document.getElementById('md-results');
+  results.innerHTML = MD.rosters.map((roster, i) => {
+    const isHuman = MD.slots[i];
+    const grade   = mdGradeTeam(roster);
+    return `<div class="md-team-result">
+      <h4>${isHuman ? '👤' : '🤖'} Team ${i + 1} <span style="font-size:14px;color:${grade.color};font-family:Barlow,sans-serif;font-weight:700">${grade.label}</span></h4>
+      <div class="md-result-grid">${roster.map((p, idx) => `
+        <div class="md-result-pick">
+          <div class="rpn">${p.name}</div>
+          <div class="rpm">${p.pos} · ${p.team || 'FA'} · Rd ${idx + 1}</div>
+        </div>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
+
+  // Reset to results tab
+  document.querySelectorAll('.md-complete-tab').forEach((b,i) => b.classList.toggle('active', i===0));
+  document.getElementById('md-results-panel').style.display = 'block';
+  document.getElementById('md-adp-panel').style.display     = 'none';
+}
+
+function mdExitDraft() {
+  if (!confirm('Exit the draft? All progress will be lost.')) return;
+  clearInterval(MD.timerInt);
+  document.getElementById('md-board-screen').classList.remove('active');
+  document.getElementById('md-setup-screen').style.display  = 'block';
+  document.getElementById('md-complete-screen').classList.remove('show');
+  MD.pickIdx = 0;
+  MD.drafted = new Set();
+  mdBuildSlots();
+}
+
+function mdGradeTeam(roster) {
+  if (!roster.length) return { label: 'N/A', color: 'var(--muted)' };
+  const avg = roster.reduce((s, p) => s + (p.draftVal || p.redraft || 0), 0) / roster.length;
+  if (avg >= 70) return { label: 'A+ Draft 🔥', color: 'var(--accent)' };
+  if (avg >= 55) return { label: 'A Draft',      color: 'var(--accent)' };
+  if (avg >= 40) return { label: 'B Draft',      color: 'var(--gold)'   };
+  if (avg >= 25) return { label: 'C Draft',      color: 'var(--muted)'  };
+  return             { label: 'D Draft',          color: 'var(--accent2)'};
+}
+
+function mdRestart() {
+  clearInterval(MD.timerInt);
+  document.getElementById('md-complete-screen').classList.remove('show');
+  document.getElementById('md-board-screen').classList.remove('active');
+  document.getElementById('md-setup-screen').style.display = 'block';
+  MD.pickIdx = 0;
+  MD.drafted = new Set();
+  mdBuildSlots();
+}
+
+// Init setup slots on page load
+mdBuildSlots();
+
+
+// ===== ARTICLES ENGINE =====
+// Articles stored in localStorage as array of objects
+// { id, headline, author, category, body, ts, edited }
+
+function artLoad() {
+  try { return JSON.parse(localStorage.getItem('snapff_articles') || '[]'); }
+  catch(e) { return []; }
+}
+function artSaveAll(articles) {
+  try { localStorage.setItem('snapff_articles', JSON.stringify(articles)); }
+  catch(e) { console.warn('Could not save articles'); }
+}
+
+// Seed with example articles on first load
+function artSeedIfEmpty() {
+  if (artLoad().length > 0) return;
+  const seeds = [
+    {
+      id: 'seed1',
+      headline: 'Welcome to SnapFFDecision Articles',
+      author: 'SnapFF Staff',
+      category: 'News',
+      body: 'Welcome to the SnapFFDecision article hub! This is where you can publish fantasy football analysis, waiver wire advice, start/sit breakdowns, trade tips, and more.\n\nClick "Write Article" at the top to publish your first piece. Articles are stored locally on your device. Guest writers can submit their work to be featured here.\n\nMore features coming soon — including article sharing and commenting.',
+      ts: Date.now(),
+      edited: false
+    },
+    {
+      id: 'seed2',
+      headline: '2026 Offseason: Top Dynasty Risers After Free Agency',
+      author: 'SnapFF Staff',
+      category: 'Dynasty',
+      body: 'Free agency has reshuffled the fantasy landscape heading into 2026. Here are the biggest dynasty risers after the dust settled.\n\n1. Kenneth Walker III (KC) — Landing in Kansas City with Patrick Mahomes is a massive opportunity boost. Walker now has elite QB support and a top-5 offense behind him.\n\n2. Justin Jefferson (MIN) — The Vikings upgraded from J.J. McCarthy to Kyler Murray, giving Jefferson a legitimate dual-threat QB. Dynasty value surges into top-5 WR territory.\n\n3. Travis Etienne Jr. (NO) — New Orleans gives Etienne a fresh start and likely a three-down role. At 25, the upside is still very real in dynasty formats.',
+      ts: Date.now() - 3600000,
+      edited: false
+    }
+  ];
+  artSaveAll(seeds);
+}
+
+function artRender() {
+  const articles = artLoad();
+  const feed     = document.getElementById('art-feed');
+  const empty    = document.getElementById('art-empty');
+  if (!feed) return;
+
+  if (!articles.length) {
+    feed.innerHTML = '';
+    if (empty) empty.style.display = 'block';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+
+  const nl2br = str => str.split('\n').join('<br>');
+  const catBadgeClass = {
+    'Waiver Wire': 'wb-Waiver', 'Dynasty': 'wb-Dynasty',
+    'Trade Talk': 'wb-Trade', 'Rookie Watch': 'wb-Rookie'
+  };
+
+  feed.innerHTML = [...articles].reverse().map(a => {
+    const date     = new Date(a.ts).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+    const preview  = a.body.length > 240 ? a.body.slice(0, 240).trimEnd() + '...' : a.body;
+    const hasMore  = a.body.length > 240;
+    const badgeCls = catBadgeClass[a.category] || '';
+    const editedBadge = a.edited ? '<span style="color:var(--muted)">· edited</span>' : '';
+    const readMore = hasMore
+      ? '<div class="art-body-full" id="art-full-' + a.id + '">' + nl2br(a.body) + '</div>' +
+        '<div class="art-read-more" onclick="artToggleRead(' + "'" + a.id + "'" + ',this)">Read more \u2192</div>'
+      : '';
+    return '<div class="art-card" id="art-' + a.id + '">' +
+      '<div class="art-card-top">' +
+        '<span class="art-badge ' + badgeCls + '">' + a.category + '</span>' +
+        '<button class="art-edit-btn" onclick="artEdit(' + "'" + a.id + "'" + ');event.stopPropagation()">\u270f\ufe0f Edit</button>' +
+      '</div>' +
+      '<div class="art-headline">' + a.headline + '</div>' +
+      '<div class="art-meta">' +
+        '<span>\u270d\ufe0f ' + a.author + '</span>' +
+        '<span>\ud83d\udcc5 ' + date + '</span>' +
+        editedBadge +
+      '</div>' +
+      '<div class="art-body-preview">' + nl2br(preview) + '</div>' +
+      readMore +
+    '</div>';
+  }).join('');
+}
+
+function artToggleRead(id, el) {
+  const full = document.getElementById('art-full-' + id);
+  const prev = full.previousElementSibling;
+  if (full.style.display === 'block') {
+    full.style.display = 'none';
+    prev.style.display = 'block';
+    el.textContent     = 'Read more →';
+  } else {
+    full.style.display = 'block';
+    prev.style.display = 'none';
+    el.textContent     = '← Show less';
+  }
+}
+
+function artToggleAdmin() {
+  const editor = document.getElementById('art-editor');
+  const isOpen = editor.style.display !== 'none';
+  if (isOpen) {
+    editor.style.display = 'none';
+    artClearForm();
+  } else {
+    editor.style.display = 'block';
+    document.getElementById('art-editor-title').textContent = 'New Article';
+    document.getElementById('art-delete-btn').style.display = 'none';
+    document.getElementById('art-editing-id').value = '';
+    editor.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
+
+function artClearForm() {
+  document.getElementById('art-headline').value    = '';
+  document.getElementById('art-author').value      = '';
+  document.getElementById('art-body').value        = '';
+  document.getElementById('art-editing-id').value  = '';
+  document.getElementById('art-category').value    = 'Analysis';
+  document.getElementById('art-delete-btn').style.display = 'none';
+}
+
+function artSave() {
+  const headline = document.getElementById('art-headline').value.trim();
+  const author   = document.getElementById('art-author').value.trim() || 'Anonymous';
+  const category = document.getElementById('art-category').value;
+  const body     = document.getElementById('art-body').value.trim();
+  const editId   = document.getElementById('art-editing-id').value;
+
+  if (!headline) { alert('Please enter a headline.'); return; }
+  if (!body)     { alert('Please write some content.'); return; }
+
+  const articles = artLoad();
+
+  if (editId) {
+    // Update existing
+    const idx = articles.findIndex(a => a.id === editId);
+    if (idx > -1) {
+      articles[idx] = { ...articles[idx], headline, author, category, body, edited: true };
+    }
+  } else {
+    // New article
+    articles.push({
+      id:       'art_' + Date.now(),
+      headline, author, category, body,
+      ts:       Date.now(),
+      edited:   false
+    });
+  }
+
+  artSaveAll(articles);
+  document.getElementById('art-editor').style.display = 'none';
+  artClearForm();
+  artRender();
+}
+
+function artEdit(id) {
+  const articles = artLoad();
+  const article  = articles.find(a => a.id === id);
+  if (!article) return;
+
+  document.getElementById('art-headline').value   = article.headline;
+  document.getElementById('art-author').value     = article.author;
+  document.getElementById('art-category').value   = article.category;
+  document.getElementById('art-body').value       = article.body;
+  document.getElementById('art-editing-id').value = article.id;
+  document.getElementById('art-editor-title').textContent = 'Edit Article';
+  document.getElementById('art-delete-btn').style.display = 'inline-block';
+
+  const editor = document.getElementById('art-editor');
+  editor.style.display = 'block';
+  editor.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function artDelete() {
+  const id = document.getElementById('art-editing-id').value;
+  if (!id) return;
+  if (!confirm('Delete this article? This cannot be undone.')) return;
+  const articles = artLoad().filter(a => a.id !== id);
+  artSaveAll(articles);
+  document.getElementById('art-editor').style.display = 'none';
+  artClearForm();
+  artRender();
+}
+
+// Init articles on load
+artSeedIfEmpty();
+artRender();
+
+</script>
+</body>
+</html>
