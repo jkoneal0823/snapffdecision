@@ -95,6 +95,8 @@
   .status-d{background:rgba(255,79,43,.12);color:var(--accent2)}
   .status-out{background:rgba(255,79,43,.15);color:var(--accent2)}
   .status-ir{background:rgba(255,79,43,.15);color:var(--accent2)}
+  .status-pup{background:rgba(245,200,66,.15);color:var(--gold)}
+  .status-susp{background:rgba(231,76,60,.18);color:#e74c3c}
   @media(max-width:600px){
     .roster-row,.roster-hdr{grid-template-columns:30px 1fr 50px 40px 70px}
     .roster-row>:last-child,.roster-hdr>:last-child{display:none}
@@ -659,7 +661,7 @@
     </div>
     <div class="nav-right">
       <div class="nav-live"><div class="live-dot"></div> 2026 RANKINGS</div>
-      <span class="nav-badge">2026 OFFSEASON</span>
+      <span class="nav-badge" id="season-badge">2026 OFFSEASON</span>
       <div id="admin-lock" onclick="adminPrompt()" style="cursor:default;opacity:0;font-size:1px;width:8px;height:20px;user-select:none;position:absolute;right:0;top:0"></div>
     </div>
   </div>
@@ -2994,9 +2996,24 @@ async function loadRosterUpdateTimes() {
 }
 
 function rosterUpdateLabel(team) {
-  const iso = rosterUpdateTimes[team];
-  if (!iso) return '';
-  const d = new Date(iso);
+  // Derive the team's "last updated" from the most recent updated_at among its
+  // players (self-correcting — always reflects the latest actual roster edit).
+  // Fall back to the stored roster_updates map if player timestamps aren't present.
+  let latest = 0;
+  try {
+    (getRosterPlayers() || []).forEach(p => {
+      if (p.team === team && p.updated_at) {
+        const t = new Date(p.updated_at).getTime();
+        if (!isNaN(t) && t > latest) latest = t;
+      }
+    });
+  } catch(e) {}
+  if (!latest && rosterUpdateTimes[team]) {
+    const t = new Date(rosterUpdateTimes[team]).getTime();
+    if (!isNaN(t)) latest = t;
+  }
+  if (!latest) return '';
+  const d = new Date(latest);
   const now = new Date();
   const diffDays = Math.floor((now - d) / 86400000);
   let when;
@@ -3624,7 +3641,7 @@ function renderRosterPage() {
   ];
 
   const posClass = { QB:'pos-qb', RB:'pos-rb', WR:'pos-wr', TE:'pos-te', DL:'pos-dl', LB:'pos-lb', DB:'pos-db' };
-  const injuryClass = { Questionable:'status-q', Doubtful:'status-d', Out:'status-out', IR:'status-ir' };
+  const injuryClass = { Questionable:'status-q', Doubtful:'status-d', Out:'status-out', IR:'status-ir', PUP:'status-pup', Suspended:'status-susp' };
 
   content.innerHTML = sortedTeams.map(team => {
     const players = byTeam[team].sort((a,b) => {
@@ -6024,6 +6041,38 @@ function adminSaveBanner() {
   localStorage.setItem('snapff_banner', JSON.stringify(b));
   renderBanner();
   adminToast('✓ Banner saved');
+}
+
+// ===== SEASON BADGE (top-right corner) — admin editable, stored in Supabase =====
+async function adminSaveSeasonBadge() {
+  const val = (document.getElementById('ab-season').value || '').trim();
+  if (!val) { adminToast('Enter a badge label', '#e74c3c'); return; }
+  try {
+    const { error } = await sb.from('app_settings').upsert({ key:'season_badge', value: { text: val } });
+    if (error) { adminToast('Save failed: ' + error.message, '#e74c3c'); return; }
+    applySeasonBadge(val);
+    adminToast('✓ Season badge saved');
+  } catch(e) { adminToast('Save failed: ' + e.message, '#e74c3c'); }
+}
+
+function applySeasonBadge(text) {
+  const el = document.getElementById('season-badge');
+  if (el && text) el.textContent = text;
+}
+
+async function loadSeasonBadge() {
+  if (!window.sb) return;
+  try {
+    const { data } = await sb.from('app_settings').select('value').eq('key','season_badge').single();
+    if (data && data.value) {
+      const v = (typeof data.value === 'string') ? JSON.parse(data.value) : data.value;
+      if (v.text) {
+        applySeasonBadge(v.text);
+        const inp = document.getElementById('ab-season');
+        if (inp) inp.value = v.text;
+      }
+    }
+  } catch(e) {}
 }
 
 function adminPreviewBanner() {
@@ -9581,6 +9630,7 @@ try{ anTrackVisit(); }catch(e){}
 try{ loadNFLSchedule().then(() => { if(typeof renderSchedulePage==='function') renderSchedulePage(); }); }catch(e){console.warn("schedule",e);}
 try{ loadCurrentWeek(); }catch(e){}
 try{ loadTradeSettings(); }catch(e){}
+try{ loadSeasonBadge(); }catch(e){}
 </script>
 
 <!-- ===== ADMIN PANEL ===== -->
@@ -9649,6 +9699,14 @@ try{ loadTradeSettings(); }catch(e){}
       <div class="admin-field-group">
         <label class="admin-label">Banner Message (shown at top of site)</label>
         <input id="ab-text" class="admin-input" placeholder="e.g. 🔥 Free Agency is LIVE — Track all moves in real time!" />
+      </div>
+      <div class="admin-field-group">
+        <label class="admin-label">Season Badge (top-right corner)</label>
+        <div style="display:flex;gap:8px">
+          <input id="ab-season" class="admin-input" placeholder="e.g. WEEK 1 or 2026 SEASON" style="flex:1" />
+          <button class="admin-btn admin-btn-primary" onclick="adminSaveSeasonBadge()" style="white-space:nowrap">Save Badge</button>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Shows in the top-right corner (currently "2026 OFFSEASON"). Update it as the season progresses.</div>
       </div>
       <div class="admin-row">
         <div class="admin-field-group">
