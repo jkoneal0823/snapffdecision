@@ -1957,6 +1957,47 @@ function buildRankerCells(breakdown) {
 // =====================================================
 // PUBLIC RANKINGS — load from published_rankings (Supabase)
 // =====================================================
+// Ranking rows predate roster IDs. Only use an unambiguous name + position
+// match: names alone collide (e.g. Justin Jefferson WR/LB), and even a
+// name + position can collide (e.g. Byron Young DL). Never guess by team,
+// because the saved team is exactly the metadata that may be stale.
+function rankingRosterKey(name, pos) {
+  return JSON.stringify([
+    String(name || '').replace(/ \(R\)$/, '').trim().toLowerCase(),
+    String(pos || '').trim().toUpperCase()
+  ]);
+}
+
+function buildRankingRosterIndex(rosters) {
+  const index = new Map();
+  (rosters || []).forEach(p => {
+    if (!p.name || !p.pos) return;
+    const key = rankingRosterKey(p.name, p.pos);
+    index.set(key, index.has(key) ? null : p);
+  });
+  return index;
+}
+
+function rankingRosterTeam(live, savedTeam) {
+  return (live && typeof live.team === 'string' && live.team.trim()) || savedTeam || 'FA';
+}
+
+// A roster refresh can finish after rankings, or follow an admin team edit.
+// Reconcile metadata only; do not republish, reorder, or recalculate values.
+function refreshRankingRosterTeams(render = true) {
+  const index = buildRankingRosterIndex(typeof sleeperPlayers !== 'undefined' ? sleeperPlayers : []);
+  [[redraft, 'renderRedraft'], [dynasty, 'renderDynasty'], [rookies, 'renderRookies']]
+    .forEach(([rows, renderer]) => {
+      let changed = false;
+      rows.forEach(p => {
+        const live = index.get(rankingRosterKey(p.name, p.pos));
+        const team = rankingRosterTeam(live, p.publishedTeam);
+        if (p.team !== team) { p.team = team; changed = true; }
+      });
+      if (render && changed && typeof window[renderer] === 'function') window[renderer]();
+    });
+}
+
 async function loadPublishedRankingsToSite() {
   if (!window.sb) return;
   try {
@@ -1973,6 +2014,7 @@ async function loadPublishedRankingsToSite() {
       if (error) { console.warn('pub rankings', error); continue; }
       // Build a per-position overall ordering, then a combined ALL list
       // Combine all positions into one list sorted by value (cross-position)
+      const rosterIndex = buildRankingRosterIndex(typeof sleeperPlayers !== 'undefined' ? sleeperPlayers : []);
       const rows = (data || []).map(p => {
         // Trend: compare overall_rank to prev_rank
         let trend = 'same', delta = 0;
@@ -1980,16 +2022,16 @@ async function loadPublishedRankingsToSite() {
           delta = p.prev_rank - p.overall_rank; // positive = moved up
           trend = delta > 0 ? 'up' : (delta < 0 ? 'dn' : 'same');
         }
-        // Look up live age from sleeperPlayers
+        // Resolve current metadata without mixing same-name players.
         let age = '';
-        const live = (typeof sleeperPlayers !== 'undefined') ?
-          sleeperPlayers.find(sp => sp.name === p.player_name) : null;
+        const live = rosterIndex.get(rankingRosterKey(p.player_name, p.pos));
         if (live && live.age) age = live.age;
         return {
           rank: p.overall_rank,
           name: p.player_name + (p.is_rookie ? ' (R)' : ''),
           pos: p.pos,
-          team: p.player_team || 'FA',
+          team: rankingRosterTeam(live, p.player_team),
+          publishedTeam: p.player_team || 'FA',
           proj: Math.round(p.value || 0),
           adp: p.avg_rank ? p.avg_rank.toFixed(1) : '—',
           age: age || '—',
@@ -2034,6 +2076,8 @@ async function loadPublishedRankingsToSite() {
     rookies = result.rookie.length ? keepIfRostered(sortByPosition(result.rookie)) : [];
     idpData = [];  // IDP format removed; defense now lives inside redraft/dynasty
     window.idpData = idpData;
+    // Catch roster refreshes that completed while the format queries were in flight.
+    refreshRankingRosterTeams(false);
     // Re-render all ranking views with the freshly loaded data
     if (typeof renderRedraft === 'function') renderRedraft();
     if (typeof renderDynasty === 'function') renderDynasty();
@@ -3057,6 +3101,7 @@ async function loadRostersFromBackend() {
       });
       sleeperLoaded = true;
       window.espnDataLoaded = true;
+      refreshRankingRosterTeams();
       if (typeof renderRosterPage === 'function') renderRosterPage();
       if (typeof renderTrade === 'function') renderTrade();
       if (typeof updateHeroPlayerCount === 'function') updateHeroPlayerCount();
@@ -5270,9 +5315,10 @@ async function sbLoadRosters() {
     while (true) {
       const { data, error } = await sb.from('rosters')
         .select('*')
-        .order('team').order('rank')
+        .order('team').order('rank').order('id')
         .range(from, from + pageSize - 1);
-      if (error) { console.warn("rosters load", error); return allRows.length ? allRows : null; }
+      // A partial roster can turn an ambiguous identity into a false unique match.
+      if (error) { console.warn("rosters load", error); return null; }
       if (!data || data.length === 0) break;
       allRows = allRows.concat(data);
       if (data.length < pageSize) break;  // last page
@@ -5514,6 +5560,10 @@ async function sbLoadPublishedRankings(format, pos) {
 async function sbPublishRankings() {
   if (!window.sb || !sbIsSuperAdmin()) return { ok:false, msg:'Super admin only' };
   try {
+    // Fetch a complete, current roster before any destructive publish writes.
+    const rosterData = await sbLoadRosters();
+    if (!rosterData || !rosterData.length) return { ok:false, msg:'Unable to load complete rosters. Rankings were not published.' };
+    const rosterIndex = buildRankingRosterIndex(rosterData);
     let totalWritten = 0;
     const publishBreakdown = {};
     for (const format of RANK_FORMATS) {
@@ -5557,10 +5607,8 @@ async function sbPublishRankings() {
         const prevMap = {};
         (prevData || []).forEach(r => { prevMap[r.player_name] = r.overall_rank; });
 
-        // Look up rookie flags from rosters
-        const { data: rosterData } = await sb.from('rosters')
-          .select('name, is_rookie').eq('is_rookie', true);
-        const rookieSet = new Set((rosterData || []).map(r => r.name));
+        // Resolve teams and rookie flags with the same position-aware identity.
+        const livePlayer = p => rosterIndex.get(rankingRosterKey(p.name, pos));
 
         // Clear old published rows for this format+pos
         await sb.from('published_rankings').delete().eq('format', format).eq('pos', pos);
@@ -5568,7 +5616,7 @@ async function sbPublishRankings() {
         // Build new published rows
         const rows = players.map((p, i) => ({
           format, pos,
-          player_name: p.name, player_team: p.team,
+          player_name: p.name, player_team: rankingRosterTeam(livePlayer(p), p.team),
           avg_rank: Math.round(p.avg * 100) / 100,
           overall_rank: i + 1,
           prev_rank: prevMap[p.name] || null,
@@ -5577,7 +5625,7 @@ async function sbPublishRankings() {
           high_rank: p.high,
           low_rank: p.low,
           breakdown: p.breakdown,
-          is_rookie: rookieSet.has(p.name)
+          is_rookie: !!(livePlayer(p) && livePlayer(p).is_rookie)
         }));
 
         if (rows.length) {
